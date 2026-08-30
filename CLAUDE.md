@@ -74,6 +74,12 @@ admin url `/admin/bulletin-studio/`, url namespace `bulletin_studio`, display na
 
 ## i18n
 
-English is the source language. When the app grows user-facing strings, mirror the
-`../bulletin-studio-plugin` setup: catalogs under `bulletin_studio/locale/` for fr, es,
-pt, ar (no English `.po`).
+The UI is the JS app's, so the catalogs live there (`../bulletin-studio-js/src/locales/`):
+English is the source, plus fr, es, pt, ar. This page passes the admin user's active
+language down as `data-locale`, so the studio follows whatever the Wagtail menu is in;
+`dir="rtl"` comes from the Wagtail shell for Arabic. ClimWeb also serves am and sw — no
+catalog for those yet, they fall back to English.
+
+Python-side strings (the menu entry, the page title) stay Django `gettext`. If they grow
+past a handful, add `bulletin_studio/locale/` for the same four languages, English being
+the msgid.

@@ -85,8 +85,10 @@ The build emits two stylesheets: `bulletin-studio.css` for the editor, and
 page loads. Both come from the same source, so what the author composes is what the site
 shows.
 
-Either way the page hands the app its API urls, CSRF token and asset base through data
-attributes on `#bulletin-studio-app`.
+Either way the page hands the app its API urls, CSRF token and the admin user's active
+language through data attributes on `#bulletin-studio-app` — the studio translates itself
+into whatever language the Wagtail admin is set to (English, French, Spanish, Portuguese,
+Arabic; other ClimWeb languages fall back to English).
 
 ## Store API
 
