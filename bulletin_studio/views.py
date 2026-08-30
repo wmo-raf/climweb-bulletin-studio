@@ -16,12 +16,20 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_http_methods
 from wagtail.admin.auth import require_admin_access
+from wagtail.images import get_image_model
+from wagtail.images.forms import get_image_form
 
 from climweb.pages.products.models import ProductPage
 
 from .models import BulletinPage
 
 MAX_BODY = 5 * 1024 * 1024  # a bulletin is text + image references, not a payload dump
+
+# What goes into a bulletin, and what the picker shows. Renditions are files on
+# disk, so the urls stay valid in the published html snapshot.
+IMAGE_RENDITION = "width-1200"
+IMAGE_THUMB = "fill-160x120"
+IMAGE_PAGE = 24
 
 # Point this at a running `npm run dev` (e.g. http://localhost:5180) to serve the
 # frontend from Vite with HMR instead of the bundle vendored under static/.
@@ -177,3 +185,47 @@ def publish(request, pk):
     (page.get_latest_revision() or page.save_revision()).publish()
     page.refresh_from_db()
     return JsonResponse(_meta(page))
+
+
+def _image(image):
+    rendition = image.get_rendition(IMAGE_RENDITION)
+    return {
+        "id": image.pk,
+        "title": image.title,
+        "url": rendition.url,
+        "width": rendition.width,
+        "height": rendition.height,
+        "thumb": image.get_rendition(IMAGE_THUMB).url,
+        "alt": image.description or "",
+    }
+
+
+@require_admin_access
+@require_http_methods(["GET", "POST"])
+def images(request):
+    """The bulletin's images are ClimWeb images: uploading here puts them in the
+    site's own library, and the picker browses what is already there.
+
+    Validation is Wagtail's own image form - it checks the real file format, not
+    the extension, and enforces WAGTAILIMAGES_MAX_UPLOAD_SIZE."""
+    Image = get_image_model()
+
+    if request.method == "POST":
+        if not request.user.has_perm("wagtailimages.add_image"):
+            return JsonResponse({"error": "not allowed to add images"}, status=403)
+        form = get_image_form(Image)(request.POST, request.FILES,
+                                     instance=Image(), user=request.user)
+        if not form.is_valid():
+            first = next(iter(form.errors.values()))[0]
+            return JsonResponse({"error": first}, status=400)
+        image = form.save(commit=False)
+        image.uploaded_by_user = request.user
+        image.save()
+        form.save_m2m()
+        return JsonResponse(_image(image), status=201)
+
+    q = request.GET.get("q", "").strip()
+    qs = Image.objects.all()
+    if q:
+        qs = qs.filter(title__icontains=q)
+    return JsonResponse([_image(i) for i in qs.order_by("-created_at")[:IMAGE_PAGE]], safe=False)

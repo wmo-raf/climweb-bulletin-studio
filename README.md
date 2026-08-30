@@ -97,6 +97,8 @@ All under `/admin/bulletin-studio/`, staff-only, CSRF-protected (send `X-CSRFTok
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `api/product-pages/` | the products a bulletin can live under |
+| `GET` | `api/images/` | browse the ClimWeb image library (`?q=` filters on title) |
+| `POST` | `api/images/` | upload an image into that library |
 | `GET` | `api/bulletins/` | dashboard listing (templates and issues, metadata only) |
 | `POST` | `api/bulletins/` | create under a product page |
 | `GET` | `api/bulletins/<id>/` | read one, with its document (latest draft) |
@@ -106,6 +108,12 @@ All under `/admin/bulletin-studio/`, staff-only, CSRF-protected (send `X-CSRFTok
 
 Saving never publishes: a live issue keeps serving its published html until someone hits
 publish. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
+
+Images are ClimWeb images: the studio uploads through Wagtail's own image form (which
+validates the real file format, not the extension) and hands back a **rendition** url, so
+a 4000px photo never reaches the page. The document keeps that url plus the image id; the
+library endpoint lets an editor reuse an image that is already on the site — the agency
+logo, typically.
 
 ## Development
 

@@ -1,9 +1,12 @@
 """One pass over the store API: a template, an issue made from it, a draft save,
 a publication, and the public page serving the rendered html."""
+import base64
 import json
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
+from django.urls import reverse as _reverse
 from django.urls import reverse
 from wagtail.models import Page, Site
 
@@ -78,3 +81,40 @@ class BulletinStoreTests(TestCase):
 
         self.assertEqual(self.client.delete(url).status_code, 204)
         self.assertFalse(BulletinPage.objects.filter(pk=issue["id"]).exists())
+
+
+# smallest valid PNG: the image form checks the real format, not the extension
+PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+
+
+class ImageStoreTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+        self.client.force_login(
+            get_user_model().objects.create_superuser("admin", "a@example.com", "pw"))
+
+    def test_upload_then_browse(self):
+        url = _reverse("bulletin_studio:images")
+        self.assertEqual(self.client.get(url).json(), [])
+
+        created = self.client.post(url, {
+            "title": "Rainfall map",
+            "file": SimpleUploadedFile("map.png", PNG, content_type="image/png"),
+        })
+        self.assertEqual(created.status_code, 201)
+        payload = created.json()
+        # a rendition, not the original: a 4000px photo must not reach the page
+        self.assertTrue(payload["url"].endswith(".png"))
+        self.assertTrue(payload["thumb"])
+        self.assertEqual(payload["title"], "Rainfall map")
+
+        self.assertEqual([i["id"] for i in self.client.get(url).json()], [payload["id"]])
+        self.assertEqual(self.client.get(url, {"q": "rain"}).json()[0]["id"], payload["id"])
+        self.assertEqual(self.client.get(url, {"q": "snow"}).json(), [])
+
+        refused = self.client.post(url, {
+            "title": "Not an image",
+            "file": SimpleUploadedFile("x.png", b"not a png", content_type="image/png"),
+        })
+        self.assertEqual(refused.status_code, 400)
