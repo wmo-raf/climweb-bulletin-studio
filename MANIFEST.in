@@ -1,0 +1,6 @@
+include README.md
+include LICENSE
+recursive-include bulletin_studio *.py
+recursive-include bulletin_studio/templates *
+recursive-include bulletin_studio/static *
+recursive-include bulletin_studio/locale *.po *.mo

@@ -1,0 +1,22 @@
+# Run from this directory:  docker compose up --build
+#
+# The build context is the repo root so the Dockerfile can install the package from
+# source; everything else lives in sandbox/.
+services:
+  sandbox:
+    build:
+      context: ..
+      dockerfile: sandbox/Dockerfile
+    environment:
+      DJANGO_SUPERUSER_USERNAME: admin
+      DJANGO_SUPERUSER_PASSWORD: admin
+      DJANGO_SUPERUSER_EMAIL: admin@example.com
+    volumes:
+      # Live-reload the app and the sandbox project without rebuilding.
+      - ../bulletin_studio:/app/bulletin_studio
+      - ./:/app/sandbox
+      # bulletin_studio/static/bulletin_studio/app est un lien symbolique vers
+      # ../bulletin-studio-js/dist : on monte sa cible pour qu'il ne pende pas ici
+      - ../../bulletin-studio-js/dist:/bulletin-studio-js/dist:ro
+    ports:
+      - "8000:8000"

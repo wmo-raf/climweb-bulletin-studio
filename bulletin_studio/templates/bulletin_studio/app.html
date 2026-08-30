@@ -1,0 +1,40 @@
+{% extends "wagtailadmin/base.html" %}
+{% load static i18n %}
+{% block titletag %}{% trans "Bulletin Studio" %}{% endblock %}
+{% block bodyclass %}bulletin-studio{% endblock %}
+
+{% block extra_css %}
+    {{ block.super }}
+    {% if not dev_server %}
+        {# In dev mode the styles arrive through Vite's module graph. #}
+        <link rel="stylesheet" href="{% static 'bulletin_studio/app/bulletin-studio.css' %}">
+    {% endif %}
+    <style>
+        /* The JS app brings its own chrome: hand it the full content area. */
+        .bulletin-studio .content-wrapper .content {
+            height: 100%;
+            padding: 0 !important;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    {# Vue replaces the contents on mount: the fallback shows only when the bundle is missing. #}
+    <div id="bulletin-studio-app"
+         style="height: 100%"
+         data-api-url="{% url 'bulletin_studio:bulletins' %}"
+         data-asset-base="{{ asset_base }}"
+         data-csrf-token="{{ csrf_token }}">
+        <p style="padding: 2rem">{% trans "The Bulletin Studio frontend bundle is not installed." %}</p>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+    {{ block.super }}
+    {% if dev_server %}
+        <script type="module" src="{{ dev_server }}/@vite/client"></script>
+        <script type="module" src="{{ dev_server }}/src/main.ts"></script>
+    {% else %}
+        <script type="module" src="{% static 'bulletin_studio/app/bulletin-studio.js' %}"></script>
+    {% endif %}
+{% endblock %}
