@@ -98,6 +98,7 @@ All under `/admin/bulletin-studio/`, staff-only, CSRF-protected (send `X-CSRFTok
 |---|---|---|
 | `GET` | `api/product-pages/` | the products a bulletin can live under |
 | `GET` | `api/images/` | browse the ClimWeb image library (`?q=` filters on title) |
+| `GET` | `api/map-config/` | where geomanager serves its layers, admin boundary tiles, country bounds |
 | `POST` | `api/images/` | upload an image into that library |
 | `GET` | `api/bulletins/` | dashboard listing (templates and issues, metadata only) |
 | `POST` | `api/bulletins/` | create under a product page |
@@ -114,6 +115,14 @@ validates the real file format, not the extension) and hands back a **rendition*
 a 4000px photo never reaches the page. The document keeps that url plus the image id; the
 library endpoint lets an editor reuse an image that is already on the site — the agency
 logo, typically.
+
+Maps come from geomanager's own layer catalogue (`api/datasets/`), no `DashboardMap`
+snippet to configure first. Picking a layer freezes its tile path, **its date** and its
+legend into the document — a published issue keeps showing the data of its own decade,
+and geomanager's raster tiles require a `time` parameter anyway. On the public page each
+map is a declarative `<div class="bs-map" data-tiles data-time data-bounds>` that
+`bulletin-studio-embed.js` hydrates with ClimWeb's own maplibre; the legend is plain html,
+so it prints.
 
 ## Development
 

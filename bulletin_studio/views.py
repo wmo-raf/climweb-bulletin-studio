@@ -14,6 +14,7 @@ import os
 import nh3
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
+from django.urls import NoReverseMatch, reverse
 from django.views.decorators.http import require_http_methods
 from wagtail.admin.auth import require_admin_access
 from wagtail.images import get_image_model
@@ -43,6 +44,9 @@ ALLOWED_TAGS = {
     "h1", "h2", "h3", "h4", "ul", "ol", "li", "blockquote",
     "img", "figure", "figcaption", "table", "thead", "tbody", "tr", "th", "td",
 }
+# Maps are declarative placeholders the frontend hydrates: the html carries the
+# layer, the frozen date and the framing as data-*, never a line of script.
+ALLOWED_ATTR_PREFIXES = {"data-"}
 ALLOWED_ATTRS = {
     "*": {"class", "style"},
     "a": {"href", "target"},  # nh3 sets rel="noopener noreferrer" itself
@@ -108,10 +112,44 @@ def _read_body(request):
     return {
         "title": title,
         "doc": doc,
-        "html": nh3.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS),
+        "html": nh3.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS,
+                          generic_attribute_prefixes=ALLOWED_ATTR_PREFIXES),
         "is_template": bool(data.get("isTemplate", False)),
         "parent": data.get("parent"),
     }
+
+
+def map_settings(request):
+    """Everything a map needs that is *not* part of the bulletin: where geomanager
+    serves its layer catalogue, the admin boundary tiles, and the country bounds.
+
+    Kept out of the document on purpose - these follow the site, not the issue.
+    Same sources as climweb's own dashboard maps (dashboards.DashboardMap reads
+    them the same way), so a bulletin map frames like the dashboards do."""
+    from adminboundarymanager.models import AdminBoundarySettings
+
+    # Root-relative urls throughout: the studio, the site and geomanager share an
+    # origin, and absolute ones would depend on the Wagtail Site being configured
+    # with the right host and port (it rarely is in dev).
+    try:
+        abm = AdminBoundarySettings.for_request(request)
+        boundary_tiles_url = abm.boundary_tiles_url
+        bounds = abm.combined_countries_bounds
+    except Exception:
+        boundary_tiles_url, bounds = None, None
+
+    try:
+        datasets_url = reverse("datasets-list")
+    except NoReverseMatch:  # geomanager not installed
+        datasets_url = None
+
+    return {"datasetsUrl": datasets_url, "boundaryTilesUrl": boundary_tiles_url, "bounds": bounds}
+
+
+@require_admin_access
+@require_http_methods(["GET"])
+def map_config(request):
+    return JsonResponse(map_settings(request))
 
 
 @require_admin_access

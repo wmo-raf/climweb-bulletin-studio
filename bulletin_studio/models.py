@@ -60,6 +60,16 @@ class BulletinPage(ProductItemPage):
             parent = parent or self.get_parent()
             self.slug = unique_child_slug(parent, slugify(self.title), exclude_pk=self.pk)
 
+    def get_context(self, request, *args, **kwargs):
+        context = super().get_context(request, *args, **kwargs)
+        # Maps hydrate client-side: the document carries the layer, the frozen date
+        # and the legend, the site supplies the admin boundaries around them.
+        context["has_map"] = "bs-map" in self.html
+        if context["has_map"]:
+            from .views import map_settings
+            context["map"] = map_settings(request)
+        return context
+
     def serve(self, request, *args, **kwargs):
         # A template is a starting point, not an issue: it has no public page even
         # if someone publishes it by hand from the Wagtail explorer.
