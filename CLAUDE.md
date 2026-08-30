@@ -41,6 +41,12 @@ That choice is deliberate: a Python renderer of the block tree would be a second
 engine to keep in step with the JS one, which is what sank the plugin. The price is that a
 published bulletin is a snapshot.
 
+Maps: the block stores the geomanager layer's tile **path** (relative — a document must
+survive a domain change), the frozen timestamp and the legend; the site supplies the
+boundary tiles and default bounds through `api/map-config/`. maplibre refuses relative
+urls in its sources, so `src/map.ts` makes them absolute at mount time. The basemap is
+deliberately light (OSM) where ClimWeb's dashboards are dark: a bulletin gets printed.
+
 Gotchas worth knowing (all learned from the plugin, all still true):
 - `apps.ready()` must extend `ProductPage.subpage_types` — ClimWeb hardcodes it
 - `base_form_class = WagtailAdminPageForm`: the native `ProductItemPage` form reads
@@ -48,6 +54,8 @@ Gotchas worth knowing (all learned from the plugin, all still true):
 - set `live=False` *before* `add_child`, or Wagtail publishes the page
 - the slug follows the title only until the first publication, then freezes
 - Django's `{# #}` comment is single-line: a multi-line one leaks into the rendered page
+- geomanager returns absolute urls built from the Wagtail Site (wrong host/port in dev)
+  and `new URL()` escapes the `{z}/{x}/{y}` placeholders — `api.samePath()` handles both
 
 ## Development
 

@@ -10,6 +10,7 @@
         {# In dev mode the styles arrive through Vite's module graph. #}
         <link rel="stylesheet" href="{% static 'bulletin_studio/app/bulletin-studio.css' %}">
     {% endif %}
+    <link rel="stylesheet" href="{% static 'css/maplibre-gl.css' %}">
     <style>
         /* The JS app brings its own chrome: hand it the full content area. */
         .bulletin-studio .content-wrapper .content {
@@ -26,6 +27,7 @@
          data-api-url="{% url 'bulletin_studio:bulletins' %}"
          data-product-pages-url="{% url 'bulletin_studio:product_pages' %}"
          data-images-url="{% url 'bulletin_studio:images' %}"
+         data-map-config-url="{% url 'bulletin_studio:map_config' %}"
          {# the admin user's active language: the app translates itself with it #}
          data-locale="{{ LANGUAGE_CODE }}"
          data-csrf-token="{{ csrf_token }}">
@@ -35,6 +37,11 @@
 
 {% block extra_js %}
     {{ block.super }}
+    {% comment %}
+        ClimWeb's maplibre, the same build its dashboards use. Loaded here too so the
+        editor draws maps with the exact version the published page will use.
+    {% endcomment %}
+    <script src="{% static 'js/maplibre-gl.js' %}"></script>
     {% if dev_server %}
         <script type="module" src="{{ dev_server }}/@vite/client"></script>
         <script type="module" src="{{ dev_server }}/src/main.ts"></script>

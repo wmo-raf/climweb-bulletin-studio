@@ -9,11 +9,24 @@
         uses, so what the author composed is what the site shows.
     {% endcomment %}
     <link rel="stylesheet" href="{% static 'bulletin_studio/app/bulletin-studio-content.css' %}">
+    {% if has_map %}<link rel="stylesheet" href="{% static 'css/maplibre-gl.css' %}">{% endif %}
 {% endblock %}
 
 {% block content %}
-    <main class="bs-doc">
+    <main class="bs-doc" data-boundary-tiles="{{ map.boundaryTilesUrl|default_if_none:'' }}">
         {# Sanitized on write (views._read_body), never on read. #}
         {{ page.html|safe }}
     </main>
+{% endblock %}
+
+{% block extra_js %}
+    {% if has_map %}
+        {% comment %}
+            ClimWeb's own maplibre (v4.1.1), the one its dashboards use: the embed
+            declares it external, so there is never a second copy nor a version skew
+            between what the author saw and what the site draws.
+        {% endcomment %}
+        <script src="{% static 'js/maplibre-gl.js' %}"></script>
+        <script type="module" src="{% static 'bulletin_studio/app/bulletin-studio-embed.js' %}"></script>
+    {% endif %}
 {% endblock %}
