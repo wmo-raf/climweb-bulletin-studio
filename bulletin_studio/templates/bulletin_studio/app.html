@@ -1,5 +1,6 @@
 {% extends "wagtailadmin/base.html" %}
 {% load static i18n %}
+{% get_current_language as LANGUAGE_CODE %}
 {% block titletag %}{% trans "Bulletin Studio" %}{% endblock %}
 {% block bodyclass %}bulletin-studio{% endblock %}
 
@@ -24,6 +25,8 @@
          style="height: 100%"
          data-api-url="{% url 'bulletin_studio:bulletins' %}"
          data-product-pages-url="{% url 'bulletin_studio:product_pages' %}"
+         {# the admin user's active language: the app translates itself with it #}
+         data-locale="{{ LANGUAGE_CODE }}"
          data-csrf-token="{{ csrf_token }}">
         <p style="padding: 2rem">{% trans "The Bulletin Studio frontend bundle is not installed." %}</p>
     </div>
