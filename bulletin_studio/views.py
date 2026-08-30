@@ -1,54 +1,81 @@
 """Admin page + JSON store for the Bulletin Studio JS app.
 
 The JS app is the whole UI: `app()` renders the Wagtail admin shell with a mount
-point, everything else is the four operations its store needs (list, read,
-save, delete). All views sit behind `require_admin_access` and keep Django's
+point, everything else is what its store needs (pick a product, list, read, save,
+publish, delete). All views sit behind `require_admin_access` and keep Django's
 CSRF check - the app sends `X-CSRFToken` from the mount point's data attribute.
+
+Saving writes a Wagtail draft revision; publishing is an explicit action, so the
+public page keeps serving the last published `html` while an issue is reworked.
 """
 import json
 import os
 
-from django.conf import settings
+import nh3
 from django.http import Http404, HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from django.views.decorators.http import require_http_methods
 from wagtail.admin.auth import require_admin_access
 
-from .models import Bulletin
+from climweb.pages.products.models import ProductPage
+
+from .models import BulletinPage
 
 MAX_BODY = 5 * 1024 * 1024  # a bulletin is text + image references, not a payload dump
 
-# Point this at a running `npm run dev` (e.g. http://localhost:5173) to serve the
+# Point this at a running `npm run dev` (e.g. http://localhost:5180) to serve the
 # frontend from Vite with HMR instead of the bundle vendored under static/.
 DEV_SERVER = os.environ.get("BULLETIN_STUDIO_DEV_SERVER", "").rstrip("/")
+
+# The rendered html comes from the browser, so it is untrusted input even though
+# only staff reach these views: sanitize on write, never on read. The editor emits
+# `bs-*` classes and inline styles only - no script, no event handlers, ever.
+ALLOWED_TAGS = {
+    "div", "p", "span", "a", "br", "hr", "strong", "em", "u", "s",
+    "h1", "h2", "h3", "h4", "ul", "ol", "li", "blockquote",
+    "img", "figure", "figcaption", "table", "thead", "tbody", "tr", "th", "td",
+}
+ALLOWED_ATTRS = {
+    "*": {"class", "style"},
+    "a": {"href", "target"},  # nh3 sets rel="noopener noreferrer" itself
+    "img": {"src", "alt", "width", "height"},
+    "td": {"colspan", "rowspan"},
+    "th": {"colspan", "rowspan"},
+}
 
 
 @require_admin_access
 def app(request):
-    # `asset_base` is where the app's own public files (sample bulletin, icons) live:
-    # the Vite dev server in dev, the collected static dir otherwise.
-    asset_base = f"{DEV_SERVER}/" if DEV_SERVER else f"{settings.STATIC_URL}bulletin_studio/app/"
-    return render(request, "bulletin_studio/app.html",
-                  {"dev_server": DEV_SERVER, "asset_base": asset_base})
+    return render(request, "bulletin_studio/app.html", {"dev_server": DEV_SERVER})
 
 
-def _meta(b):
-    """Dashboard listing shape - no blocks, the list view never renders them."""
+def _ms(dt):
+    return int(dt.timestamp() * 1000) if dt else None
+
+
+def _meta(page, parent=None):
+    """Dashboard listing shape - no doc, the list view never renders it."""
+    parent = parent or page.get_parent()
     return {
-        "id": str(b.pk),
-        "title": b.title,
-        "updatedAt": int(b.updated_at.timestamp() * 1000),
-        "blockCount": len(b.blocks),
+        "id": page.pk,
+        "title": page.title,
+        "isTemplate": page.is_template,
+        "parent": parent.pk,
+        "parentTitle": parent.title,
+        "blockCount": page.block_count,
+        "updatedAt": _ms(page.latest_revision_created_at or page.last_published_at),
+        "live": page.live,
+        "hasUnpublishedChanges": page.has_unpublished_changes,
+        "url": page.get_url() if page.live and not page.is_template else None,
     }
 
 
-def _full(b):
-    return {"id": str(b.pk), "title": b.title, "blocks": b.blocks,
-            "updatedAt": int(b.updated_at.timestamp() * 1000)}
+def _full(page, parent=None):
+    return {**_meta(page, parent), "doc": page.doc}
 
 
-def _read_doc(request):
-    """Parse and validate a bulletin payload. Returns (title, blocks) or raises ValueError."""
+def _read_body(request):
+    """Parse and validate an editor payload. Returns a dict or raises ValueError."""
     if len(request.body) > MAX_BODY:
         raise ValueError("payload too large")
     try:
@@ -62,11 +89,30 @@ def _read_doc(request):
     if not isinstance(title, str) or len(title) > 255:
         raise ValueError("title must be a string of at most 255 characters")
 
-    blocks = data.get("blocks", [])
-    if not isinstance(blocks, list):
-        raise ValueError("blocks must be a list")
+    doc = data.get("doc", {})
+    if not isinstance(doc, dict):
+        raise ValueError("doc must be an object")
 
-    return title, blocks
+    html = data.get("html", "")
+    if not isinstance(html, str):
+        raise ValueError("html must be a string")
+
+    return {
+        "title": title,
+        "doc": doc,
+        "html": nh3.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS),
+        "is_template": bool(data.get("isTemplate", False)),
+        "parent": data.get("parent"),
+    }
+
+
+@require_admin_access
+@require_http_methods(["GET"])
+def product_pages(request):
+    """The products a bulletin can live under - the editor picks one when it
+    creates a template, and every issue made from that template inherits it."""
+    return JsonResponse(
+        [{"id": p.pk, "title": p.title} for p in ProductPage.objects.all()], safe=False)
 
 
 @require_admin_access
@@ -74,37 +120,60 @@ def _read_doc(request):
 def bulletins(request):
     if request.method == "POST":
         try:
-            title, blocks = _read_doc(request)
+            body = _read_body(request)
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
-        b = Bulletin.objects.create(title=title, doc={"blocks": blocks})
-        return JsonResponse(_full(b), status=201)
+        try:
+            parent = ProductPage.objects.get(pk=body["parent"])
+        except (ProductPage.DoesNotExist, TypeError, ValueError):
+            return JsonResponse({"error": "parent must be the id of a product page"}, status=400)
 
-    return JsonResponse([_meta(b) for b in Bulletin.objects.all()], safe=False)
+        # live=False must be set *before* add_child, or Wagtail publishes the page.
+        page = BulletinPage(doc=body["doc"], html=body["html"],
+                            is_template=body["is_template"], live=False)
+        page.apply_title(body["title"], parent=parent)
+        parent.add_child(instance=page)
+        page.save_revision()
+        return JsonResponse(_full(page, parent), status=201)
+
+    pages = BulletinPage.objects.all().order_by("-latest_revision_created_at")
+    return JsonResponse([_meta(p) for p in pages], safe=False)
 
 
 @require_admin_access
 @require_http_methods(["GET", "PUT", "DELETE"])
 def bulletin(request, pk):
-    if request.method == "PUT":
-        # Upsert: the editor owns the id, so a save on a bulletin the server has
-        # never seen creates it rather than 404ing.
-        try:
-            title, blocks = _read_doc(request)
-        except ValueError as exc:
-            return JsonResponse({"error": str(exc)}, status=400)
-        b, created = Bulletin.objects.update_or_create(
-            pk=pk, defaults={"title": title, "doc": {"blocks": blocks}},
-        )
-        return JsonResponse(_full(b), status=201 if created else 200)
-
-    try:
-        b = Bulletin.objects.get(pk=pk)
-    except Bulletin.DoesNotExist:
-        raise Http404
+    page = get_object_or_404(BulletinPage, pk=pk)
 
     if request.method == "DELETE":
-        b.delete()
+        page.delete()
         return HttpResponse(status=204)
 
-    return JsonResponse(_full(b))
+    if request.method == "PUT":
+        try:
+            body = _read_body(request)
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        page.doc, page.html = body["doc"], body["html"]
+        page.apply_title(body["title"])
+        # A page that was never published has no public version to protect, so the
+        # row follows the draft and the dashboard stays in sync. Once live, only
+        # the revision moves until someone publishes.
+        if not page.live:
+            page.save()
+        page.save_revision()
+        return JsonResponse(_full(page))
+
+    # The editor opens the draft, not the published version.
+    return JsonResponse(_full(page.get_latest_revision_as_object(), page.get_parent()))
+
+
+@require_admin_access
+@require_http_methods(["POST"])
+def publish(request, pk):
+    page = get_object_or_404(BulletinPage, pk=pk)
+    if page.is_template:
+        raise Http404
+    (page.get_latest_revision() or page.save_revision()).publish()
+    page.refresh_from_db()
+    return JsonResponse(_meta(page))

@@ -1,0 +1,55 @@
+# Dev stack: the package installed into ClimWeb, with hot code reloading.
+# Needs a local `climweb_dev:latest` image (built from ../climweb) and a .env
+# (see .env.sample). Admin: http://localhost:8010/admin
+x-climweb-variables: &climweb-variables
+  DATABASE_URL: postgis://${DB_USER:-climweb}:${DB_PASSWORD}@bulletin-db:5432/${DB_NAME:-climweb}
+  REDIS_URL: redis://bulletin-redis:6379/0
+  MIGRATE_ON_STARTUP: "true"
+  ADMIN_URL_PATH: ${ADMIN_URL_PATH:-admin}
+  CLIMWEB_ADDITIONAL_APPS: bulletin_studio
+  # Point at a running `npm run dev` in ../bulletin-studio-js to get HMR instead
+  # of the vendored bundle. Resolved by the browser, so localhost is the host's.
+  BULLETIN_STUDIO_DEV_SERVER: ${BULLETIN_STUDIO_DEV_SERVER:-}
+
+services:
+  bulletin-db:
+    image: postgis/postgis:15-master
+    environment:
+      - POSTGRES_USER=${DB_USER:-climweb}
+      - POSTGRES_DB=${DB_NAME:-climweb}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-?}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  bulletin-redis:
+    image: redis:alpine
+
+  climweb:
+    image: bulletin-studio-package_dev
+    build:
+      context: .
+      dockerfile: ./dev.Dockerfile
+    ports:
+      - "${BULLETIN_STUDIO_PORT:-8010}:8000"
+    env_file:
+      - .env
+    environment:
+      <<: *climweb-variables
+      WAIT_HOSTS: bulletin-db:5432,bulletin-redis:6379
+    depends_on:
+      - bulletin-db
+      - bulletin-redis
+    volumes:
+      - ./bulletin_studio:/app/bulletin_studio
+      # static/bulletin_studio/app is a symlink to ../bulletin-studio-js/dist,
+      # which resolves to /bulletin-studio-js/dist once inside the container.
+      - ../bulletin-studio-js/dist:/bulletin-studio-js/dist:ro
+      - static:/climweb/web/src/climweb/static
+      - media:/climweb/web/src/climweb/media
+    stdin_open: true
+    tty: true
+
+volumes:
+  pgdata:
+  static:
+  media:

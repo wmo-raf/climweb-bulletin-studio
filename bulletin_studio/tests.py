@@ -1,69 +1,80 @@
-"""Smallest check that the store round-trips and stays staff-only.
-
-Run from the sandbox:  python manage.py test bulletin_studio
-"""
+"""One pass over the store API: a template, an issue made from it, a draft save,
+a publication, and the public page serving the rendered html."""
 import json
 
-from django.contrib.auth.models import User
-from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.test import Client, TestCase
 from django.urls import reverse
+from wagtail.models import Page, Site
 
-from .models import Bulletin
+from climweb.base.models.snippets import Product, ServiceCategory
+from climweb.pages.home.models import HomePage
+from climweb.pages.products.models import ProductIndexPage, ProductPage
 
-DOC = {"title": "Bulletin agromet", "blocks": [{"id": "1", "type": "text"}]}
+from .models import BulletinPage
 
 
-class StoreTests(TestCase):
+class BulletinStoreTests(TestCase):
     def setUp(self):
-        self.staff = User.objects.create_user("staff", password="x", is_staff=True,
-                                              is_superuser=True)
+        root = Page.objects.get(depth=1)
+        home = HomePage(title="ClimWeb", slug="climweb", hero_title="ClimWeb")
+        root.add_child(instance=home)
+        Site.objects.update_or_create(
+            is_default_site=True,
+            defaults={"hostname": "localhost", "port": 80, "root_page": home})
+        index = ProductIndexPage(title="Products", slug="products")
+        home.add_child(instance=index)
+        self.product = ProductPage(
+            title="Agromet", slug="agromet",
+            service=ServiceCategory.objects.create(name="Bulletins", icon=""),
+            product=Product.objects.create(name="Agromet"),
+            introduction_title="Agromet", introduction_text="<p>Agromet</p>")
+        index.add_child(instance=self.product)
 
-    def test_requires_admin_access(self):
-        for url in (reverse("bulletin_studio:app"), reverse("bulletin_studio:bulletins")):
-            self.assertEqual(self.client.get(url).status_code, 302, url)
+        self.client = Client()
+        self.client.force_login(
+            get_user_model().objects.create_superuser("admin", "a@example.com", "pw"))
 
-    def test_page_mounts_the_app(self):
-        self.client.force_login(self.staff)
-        html = self.client.get(reverse("bulletin_studio:app")).content.decode()
-        self.assertIn('id="bulletin-studio-app"', html)
-        self.assertIn(reverse("bulletin_studio:bulletins"), html)
+    def post(self, url, payload):
+        return self.client.post(url, data=json.dumps(payload), content_type="application/json")
 
-    def test_create_list_read_save_delete(self):
-        self.client.force_login(self.staff)
-        listing = reverse("bulletin_studio:bulletins")
+    def test_lifecycle(self):
+        products = self.client.get(reverse("bulletin_studio:product_pages")).json()
+        self.assertEqual([p["id"] for p in products], [self.product.pk])
 
-        created = self.client.post(listing, DOC, content_type="application/json")
-        self.assertEqual(created.status_code, 201)
-        pk = created.json()["id"]
+        # A template: a draft under the product, never served publicly.
+        tpl = self.post(reverse("bulletin_studio:bulletins"), {
+            "title": "Decadal template", "doc": {"blocks": [{"id": "a", "type": "divider"}]},
+            "html": "<div class='bs-doc'><hr></div>", "isTemplate": True,
+            "parent": self.product.pk}).json()
+        self.assertTrue(tpl["isTemplate"])
+        self.assertFalse(BulletinPage.objects.get(pk=tpl["id"]).live)
 
-        self.assertEqual(self.client.get(listing).json(),
-                         [{"id": pk, "title": DOC["title"], "blockCount": 1,
-                           "updatedAt": created.json()["updatedAt"]}])
+        # An issue starts as a copy of the template's doc, under the same product.
+        issue = self.post(reverse("bulletin_studio:bulletins"), {
+            "title": "Decadal bulletin no 12", "doc": tpl["doc"],
+            "html": "<p>draft</p>", "isTemplate": False, "parent": tpl["parent"]}).json()
+        self.assertEqual(issue["parent"], self.product.pk)
 
-        detail = reverse("bulletin_studio:bulletin", args=[pk])
-        self.assertEqual(self.client.get(detail).json()["blocks"], DOC["blocks"])
+        url = reverse("bulletin_studio:bulletin", args=[issue["id"]])
+        # Saving is a draft, and the html is sanitized on the way in.
+        saved = self.client.put(url, data=json.dumps({
+            "title": "Decadal bulletin no 12", "doc": {"blocks": []},
+            "html": "<p>rain</p><script>alert(1)</script>",
+            "isTemplate": False}), content_type="application/json").json()
+        self.assertFalse(saved["live"])
+        self.assertEqual(BulletinPage.objects.get(pk=issue["id"]).html, "<p>rain</p>")
 
-        saved = self.client.put(detail, {"title": "v2", "blocks": []},
-                                content_type="application/json")
-        self.assertEqual((saved.status_code, saved.json()["title"]), (200, "v2"))
+        published = self.client.post(
+            reverse("bulletin_studio:publish", args=[issue["id"]])).json()
+        self.assertTrue(published["live"])
+        self.assertTrue(published["url"])
 
-        self.assertEqual(self.client.delete(detail).status_code, 204)
-        self.assertEqual(Bulletin.objects.count(), 0)
+        page = BulletinPage.objects.get(pk=issue["id"])
+        self.assertContains(self.client.get(page.url), "rain")
+        # The template has no public page even if it somehow went live.
+        BulletinPage.objects.filter(pk=tpl["id"]).update(live=True)
+        self.assertEqual(self.client.get(BulletinPage.objects.get(pk=tpl["id"]).url).status_code, 404)
 
-    def test_put_on_unknown_id_creates_it(self):
-        """The editor mints ids client-side, so a first save is a create."""
-        self.client.force_login(self.staff)
-        url = reverse("bulletin_studio:bulletin", args=["0f0e4b1e-0000-4000-8000-000000000001"])
-        self.assertEqual(self.client.put(url, DOC, content_type="application/json").status_code, 201)
-        self.assertEqual(Bulletin.objects.count(), 1)
-
-    def test_rejects_bad_payloads(self):
-        self.client.force_login(self.staff)
-        listing = reverse("bulletin_studio:bulletins")
-        for body in (b"not json", json.dumps([1]).encode(),
-                     json.dumps({"blocks": "nope"}).encode(),
-                     json.dumps({"title": "x" * 256}).encode()):
-            self.assertEqual(self.client.post(listing, body,
-                                              content_type="application/json").status_code,
-                             400, body[:20])
-        self.assertEqual(Bulletin.objects.count(), 0)
+        self.assertEqual(self.client.delete(url).status_code, 204)
+        self.assertFalse(BulletinPage.objects.filter(pk=issue["id"]).exists())

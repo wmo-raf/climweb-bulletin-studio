@@ -2,11 +2,30 @@
 
 Block-based bulletin editor for [ClimWeb](https://github.com/wmo-raf/nmhs-cms): a Wagtail
 admin entry that hosts the [Bulletin Studio](https://github.com/fgg-consultant/bulletin-studio-js)
-JS app (Vue 3 + Lexical) and stores its documents server-side.
+JS app (Vue 3 + Lexical) and publishes what it composes into ClimWeb's Products section.
 
-An ordinary pip-installable Django/Wagtail app, packaged the same way as
-[climweb-dataset-helper](https://github.com/wmo-raf/climweb-dataset-helper) — not a
-ClimWeb *plugin*.
+A ClimWeb app, packaged like [geomanager](https://github.com/wmo-raf/geomanager): an
+ordinary pip-installable Django app, but one that **depends on ClimWeb** (it subclasses
+`products.ProductItemPage`) — it will not boot in a bare Wagtail project.
+
+## How it fits into ClimWeb
+
+```
+HomePage → ProductIndexPage → ProductPage ("Agromet bulletin")
+                                   ├── template  (draft, is_template=True, never public)
+                                   ├── issue n°12  (live ProductItemPage)
+                                   └── issue n°13
+```
+
+- A **template** is just a bulletin flagged as one, living as a draft under the
+  ProductPage an editor picks when creating it. It is a starting point, nothing stays
+  linked afterwards — an issue may freely diverge from it.
+- An **issue** is a copy of the template's document, published as a real
+  `ProductItemPage`: it shows up in the native product listing with its year/month
+  filters, at a stable URL.
+- The page serves the **HTML the JS app rendered**. There is no Python renderer of the
+  block document, so the editor stays the single source of layout truth; the document
+  itself (`doc`) is stored opaquely next to it.
 
 ## Installation
 
@@ -20,25 +39,25 @@ Then add the app to ClimWeb via its environment:
 CLIMWEB_ADDITIONAL_APPS=bulletin_studio
 ```
 
-For any other Wagtail project, add `"bulletin_studio"` to `INSTALLED_APPS` yourself.
-Then run migrations:
-
 ```shell
-python manage.py migrate bulletin_studio
+climweb migrate bulletin_studio
+climweb collectstatic --noinput
 ```
 
 The admin menu gains a **Bulletin Studio** entry pointing at `/admin/bulletin-studio/`.
+Creating a template needs at least one ClimWeb **Product page** to host it.
 
 ## Layout
 
 ```
 bulletin_studio/          the Django app
   wagtail_hooks.py        admin menu entry + admin urls
+  apps.py                 ready(): lets BulletinPage live under a ProductPage
+  models.py               BulletinPage(ProductItemPage): doc, html, is_template
   views.py                the admin page + the JSON store the JS app talks to
-  models.py               Bulletin (uuid pk, title, doc JSONField)
   templates/…/app.html    Wagtail admin shell + mount point for the JS app
+  templates/…/bulletin_page.html   the public page: the rendered html, nothing else
   static/…/app/           built JS bundle (see sync-frontend.sh)
-sandbox/                  minimal Wagtail project to run the app standalone
 ```
 
 ## Frontend
@@ -49,8 +68,8 @@ and the admin page can load it two ways.
 **Dev — Vite dev server, HMR, no build step.** Point the app at a running dev server:
 
 ```shell
-cd ../bulletin-studio-js && npm run dev          # port fixe 5180 (strictPort)
-BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180 python manage.py runserver
+cd ../bulletin-studio-js && npm run dev          # fixed port 5180 (strictPort)
+# then BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180 in .env
 ```
 
 The template then loads `/@vite/client` and `/src/main.ts` from that origin instead of the
@@ -61,9 +80,13 @@ bundle, and styles arrive through Vite's module graph.
 to `../bulletin-studio-js/dist`, so a plain `npm run build` in the JS repo is enough
 (the script detects the symlink and skips the copy).
 
-Either way the page hands the app its API url, CSRF token and asset base through data
-attributes on `#bulletin-studio-app`, and the bundle keeps unhashed names
-(`bulletin-studio.js` / `bulletin-studio.css`) so `{% static %}` can find it.
+The build emits two stylesheets: `bulletin-studio.css` for the editor, and
+`bulletin-studio-content.css` — the bulletin's own content styles, which the *public*
+page loads. Both come from the same source, so what the author composes is what the site
+shows.
+
+Either way the page hands the app its API urls, CSRF token and asset base through data
+attributes on `#bulletin-studio-app`.
 
 ## Store API
 
@@ -71,26 +94,32 @@ All under `/admin/bulletin-studio/`, staff-only, CSRF-protected (send `X-CSRFTok
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `api/bulletins/` | dashboard listing (metadata only) |
-| `POST` | `api/bulletins/` | create |
-| `GET` | `api/bulletins/<uuid>/` | read one, with blocks |
-| `PUT` | `api/bulletins/<uuid>/` | save (upsert — the editor owns the id) |
-| `DELETE` | `api/bulletins/<uuid>/` | delete |
+| `GET` | `api/product-pages/` | the products a bulletin can live under |
+| `GET` | `api/bulletins/` | dashboard listing (templates and issues, metadata only) |
+| `POST` | `api/bulletins/` | create under a product page |
+| `GET` | `api/bulletins/<id>/` | read one, with its document (latest draft) |
+| `PUT` | `api/bulletins/<id>/` | save — a Wagtail draft revision |
+| `POST` | `api/bulletins/<id>/publish/` | publish the draft |
+| `DELETE` | `api/bulletins/<id>/` | delete |
+
+Saving never publishes: a live issue keeps serving its published html until someone hits
+publish. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
 
 ## Development
 
-```shell
-docker compose -f sandbox/docker-compose.yml up --build   # http://localhost:8000/admin (admin/admin)
-```
-
-Or without Docker:
+Needs a local `climweb_dev:latest` image, built from a ClimWeb checkout (`../climweb`).
 
 ```shell
-python -m venv .venv && . .venv/bin/activate
-cd sandbox && pip install -r requirements.txt   # `-e ..` needs this cwd
-python manage.py migrate && python manage.py createsuperuser
-python manage.py runserver
+cp .env.sample .env          # set DB_PASSWORD
+docker compose -f docker-compose.dev.yml up -d      # http://localhost:8010/admin
+docker compose -f docker-compose.dev.yml exec climweb /climweb/web/src/climweb/manage.py test bulletin_studio
 ```
 
-`makemigrations.py` / `migrate.py` at the repo root are shims that boot Django against
-sqlite for schema work outside the sandbox.
+`bulletin_studio/` is bind-mounted, so Python changes hot-reload; packaging changes need
+`docker compose -f docker-compose.dev.yml build climweb`. The stack starts on an empty
+database: create a superuser, a Home page and a Product page before the studio has
+anywhere to put a template.
+
+## License
+
+MIT

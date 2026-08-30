@@ -1,7 +1,0 @@
-# The app under test, installed from the repo root in editable mode so changes to
-# bulletin_studio/ take effect without a reinstall.
--e ..
-
-# Pinned to the versions ClimWeb runs, so the sandbox reproduces production.
-wagtail==7.3.2
-django==5.2.14

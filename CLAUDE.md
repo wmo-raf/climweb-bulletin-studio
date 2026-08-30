@@ -3,45 +3,70 @@
 ## Project Overview
 
 `climweb-bulletin-studio` — pip-installable Django/Wagtail app that hosts the Bulletin
-Studio JS editor inside the ClimWeb admin. Structure copied from
-`../dataset-helper-plugin`'s packaged form, i.e.
-https://github.com/wmo-raf/climweb-dataset-helper (setup.cfg + `sandbox/` + root
-`boot_django.py`/`makemigrations.py`/`migrate.py`).
+Studio JS editor inside the ClimWeb admin and publishes what it composes into ClimWeb's
+Products section.
+
+**It depends on ClimWeb** (`climweb.pages.products`), like geomanager does: there is no
+bare-Wagtail mode, and no sandbox — development happens against the real ClimWeb image
+(`docker-compose.dev.yml`).
 
 Predecessors, both worth reading before changing anything here:
 - `../bulletin-studio-plugin` — the ClimWeb *plugin* attempt (Django-rendered slot
-  templates, `docs/SPECIFICATION.md`). Superseded by this package; the specification
-  still describes the intended product.
-- `../bulletin-studio-js` — the frontend (Vue 3 + Lexical). Source of truth for the UI;
-  its `dist/` is vendored here by `sync-frontend.sh`.
-- `../climweb` — the ClimWeb source. `wagtail-webstories-editor` (in its requirements) is
-  the reference for "a JS app as a Wagtail admin page".
+  templates, locked structure, rule-based generation from geomanager, `docs/SPECIFICATION.md`).
+  Superseded: the JS editor replaces the slot machinery, and geomanager's REST API replaces
+  the Python data extraction. The spec still describes the intended product.
+- `../bulletin-studio-js` — the frontend (Vue 3 + Lexical). Source of truth for the UI and
+  for the layout; its `dist/` is vendored here by `sync-frontend.sh`.
+- `../climweb` — the ClimWeb source, and where `climweb_dev:latest` is built from.
 
 ## Architecture
 
-The Python side is deliberately thin: a menu entry, one template, one model, four JSON
-endpoints. Anything about blocks, layout or rendering belongs in the JS app —
-`Bulletin.doc` is stored opaquely so the two can move independently.
+`BulletinPage(ProductItemPage)` under a `ProductPage`. `is_template=True` marks the
+starting point an editor duplicates; issues are its siblings, published as real product
+items. The template is a point of departure only — nothing stays linked afterwards.
+
+The Python side is deliberately thin: a menu entry, one model, one public template, six
+JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app:
+
+- `doc` — the editor's JSON, stored opaquely (no Python mirror to keep in sync)
+- `html` — what the editor rendered from it, and the **only** thing the public page serves
+
+That choice is deliberate: a Python renderer of the block tree would be a second layout
+engine to keep in step with the JS one, which is what sank the plugin. The price is that a
+published bulletin is a snapshot.
+
+Gotchas worth knowing (all learned from the plugin, all still true):
+- `apps.ready()` must extend `ProductPage.subpage_types` — ClimWeb hardcodes it
+- `base_form_class = WagtailAdminPageForm`: the native `ProductItemPage` form reads
+  `parent.product.product_item_types` and crashes without the `products` StreamField
+- set `live=False` *before* `add_child`, or Wagtail publishes the page
+- the slug follows the title only until the first publication, then freezes
+- Django's `{# #}` comment is single-line: a multi-line one leaks into the rendered page
 
 ## Development
 
 ```shell
-# frontend en mode dev (HMR) - le chemin le plus court pour itérer sur l'UI
-cd ../bulletin-studio-js && npm run dev                    # port 5180, strictPort
-cd sandbox && BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180 ../.venv/bin/python manage.py runserver 8010
-
-# ou bundle buildé (static/bulletin_studio/app est un lien vers ../bulletin-studio-js/dist)
-./sync-frontend.sh ../bulletin-studio-js
-docker compose -f sandbox/docker-compose.yml up --build    # http://localhost:8000/admin (admin/admin)
+cp .env.sample .env                                  # DB_PASSWORD
+docker compose -f docker-compose.dev.yml up -d       # http://localhost:8010/admin
+docker compose -f docker-compose.dev.yml exec climweb \
+  /climweb/web/src/climweb/manage.py test bulletin_studio
 ```
 
-Le venv de la sandbox est `.venv` (python3.11 **système** : le pyenv 3.11.13 est compilé
-sans `_sqlite3`). Sur cette machine 8000 et 5173 sont déjà pris, d'où 8010 / 5180.
+Needs `climweb_dev:latest` built from `../climweb`. The stack starts on an **empty**
+database: create a superuser, a HomePage and a ProductPage before the studio has anywhere
+to put a template. `bulletin_studio/` is bind-mounted (Python hot-reloads); packaging
+changes need `build climweb`.
 
-Piège CSS : Tailwind 4 pose ses utilitaires dans `@layer utilities`, et toute règle CSS
-**non layerisée** (le `core.css` de wagtail) gagne contre une règle layerisée quelle que
-soit la spécificité. `src/style.css` de l'app importe donc `tailwindcss/utilities.css`
-hors couche.
+The compose file also mounts `../bulletin-studio-js/dist` at `/bulletin-studio-js/dist`,
+which is where the `static/bulletin_studio/app` symlink resolves inside the container.
+
+Frontend iteration: `npm run dev` in `../bulletin-studio-js` (port 5180, strictPort) plus
+`BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180` in `.env`. Otherwise `npm run build`
+then `manage.py collectstatic --noinput`.
+
+CSS trap: Tailwind 4 puts its utilities in `@layer utilities`, and any **unlayered** rule
+(wagtail's `core.css`) beats a layered one whatever the specificity. The app's
+`src/style.css` therefore imports `tailwindcss/utilities.css` outside the layer.
 
 Naming: distribution `climweb-bulletin-studio`, module and app label `bulletin_studio`,
 admin url `/admin/bulletin-studio/`, url namespace `bulletin_studio`, display name
