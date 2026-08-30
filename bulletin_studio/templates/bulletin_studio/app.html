@@ -23,7 +23,7 @@
     <div id="bulletin-studio-app"
          style="height: 100%"
          data-api-url="{% url 'bulletin_studio:bulletins' %}"
-         data-asset-base="{{ asset_base }}"
+         data-product-pages-url="{% url 'bulletin_studio:product_pages' %}"
          data-csrf-token="{{ csrf_token }}">
         <p style="padding: 2rem">{% trans "The Bulletin Studio frontend bundle is not installed." %}</p>
     </div>

@@ -171,8 +171,6 @@ cython_debug/
 
 # End of https://www.toptal.com/developers/gitignore/api/django
 .vscode
-# sandbox collectstatic output
-/sandbox/static/
 
 # bundle JS : lien symbolique vers ../bulletin-studio-js/dist en dev,
 # vendorisé par sync-frontend.sh au moment de la release

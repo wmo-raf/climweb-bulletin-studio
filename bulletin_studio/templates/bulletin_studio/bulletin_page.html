@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block body_class %}bulletin-page{% endblock %}
+
+{% block extra_css %}
+    {% comment %}
+        Content styles shipped with the frontend bundle: the same rules the editor
+        uses, so what the author composed is what the site shows.
+    {% endcomment %}
+    <link rel="stylesheet" href="{% static 'bulletin_studio/app/bulletin-studio-content.css' %}">
+{% endblock %}
+
+{% block content %}
+    <main class="bs-doc">
+        {# Sanitized on write (views._read_body), never on read. #}
+        {{ page.html|safe }}
+    </main>
+{% endblock %}

@@ -3,8 +3,9 @@
 #
 #   ./sync-frontend.sh [path-to-bulletin-studio-js]   (default: ../bulletin-studio-js)
 #
-# The JS repo's vite config emits unhashed `bulletin-studio.{js,css}`, which is what
-# templates/bulletin_studio/app.html loads via {% static %}.
+# The JS repo's vite config emits unhashed `bulletin-studio.{js,css}` (the editor,
+# loaded by templates/bulletin_studio/app.html) and `bulletin-studio-content.css`
+# (the published bulletin's styles, loaded by bulletin_page.html), both via {% static %}.
 set -euo pipefail
 
 SRC="${1:-../bulletin-studio-js}"
