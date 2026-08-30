@@ -25,6 +25,7 @@
          style="height: 100%"
          data-api-url="{% url 'bulletin_studio:bulletins' %}"
          data-product-pages-url="{% url 'bulletin_studio:product_pages' %}"
+         data-images-url="{% url 'bulletin_studio:images' %}"
          {# the admin user's active language: the app translates itself with it #}
          data-locale="{{ LANGUAGE_CODE }}"
          data-csrf-token="{{ csrf_token }}">

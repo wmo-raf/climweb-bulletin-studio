@@ -31,6 +31,12 @@ JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app
 - `doc` — the editor's JSON, stored opaquely (no Python mirror to keep in sync)
 - `html` — what the editor rendered from it, and the **only** thing the public page serves
 
+The one exception to "thin" is images: they go through `api/images/` into the Wagtail
+library rather than living as dataURLs in `doc`, and come back as renditions
+(`width-1200`). Renditions are files on disk, so their urls survive in the html snapshot —
+but deleting an image from the library will break bulletins that reference it, and nothing
+warns about it (the reference lives inside an opaque JSON field).
+
 That choice is deliberate: a Python renderer of the block tree would be a second layout
 engine to keep in step with the JS one, which is what sank the plugin. The price is that a
 published bulletin is a snapshot.
