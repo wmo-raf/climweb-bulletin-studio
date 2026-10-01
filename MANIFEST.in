@@ -1,6 +1,12 @@
 include README.md
+include CHANGELOG.md
 include LICENSE
 recursive-include bulletin_studio *.py
 recursive-include bulletin_studio/templates *
 recursive-include bulletin_studio/static *
-recursive-include bulletin_studio/locale *.po *.mo
+# Vite's standalone page and its public/ files: the Wagtail templates are the
+# host pages, nothing references these. In a dev checkout the app dir is a
+# symlink to the JS repo's whole dist/, so they would otherwise ship.
+exclude bulletin_studio/static/bulletin_studio/app/index.html
+exclude bulletin_studio/static/bulletin_studio/app/favicon.svg
+exclude bulletin_studio/static/bulletin_studio/app/icons.svg

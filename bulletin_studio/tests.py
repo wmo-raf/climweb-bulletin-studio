@@ -2,11 +2,11 @@
 a publication, and the public page serving the rendered html."""
 import base64
 import json
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
-from django.urls import reverse as _reverse
 from django.urls import reverse
 from wagtail.models import Page, Site
 
@@ -82,6 +82,23 @@ class BulletinStoreTests(TestCase):
         self.assertEqual(self.client.delete(url).status_code, 204)
         self.assertFalse(BulletinPage.objects.filter(pk=issue["id"]).exists())
 
+    def test_publish_and_delete_clear_the_site_cache(self):
+        # ClimWeb clears its page cache from Wagtail editor hooks the studio
+        # never goes through: without this, a republished issue keeps serving
+        # its old html for hours in production.
+        issue = self.post(reverse("bulletin_studio:bulletins"), {
+            "title": "Issue", "doc": {}, "html": "<p>v1</p>", "isTemplate": False,
+            "parent": self.product.pk}).json()
+        url = reverse("bulletin_studio:bulletin", args=[issue["id"]])
+        with mock.patch("bulletin_studio.views._clear_site_cache") as clear:
+            self.client.put(url, data=json.dumps({"title": "Issue", "doc": {}, "html": "<p>v2</p>"}),
+                            content_type="application/json")
+            clear.assert_not_called()  # a draft changes nothing public
+            self.client.post(reverse("bulletin_studio:publish", args=[issue["id"]]))
+            clear.assert_called_once()
+            self.client.delete(url)
+            self.assertEqual(clear.call_count, 2)
+
 
 # smallest valid PNG: the image form checks the real format, not the extension
 PNG = base64.b64decode(
@@ -95,7 +112,7 @@ class ImageStoreTests(TestCase):
             get_user_model().objects.create_superuser("admin", "a@example.com", "pw"))
 
     def test_upload_then_browse(self):
-        url = _reverse("bulletin_studio:images")
+        url = reverse("bulletin_studio:images")
         self.assertEqual(self.client.get(url).json(), [])
 
         created = self.client.post(url, {

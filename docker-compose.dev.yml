@@ -7,6 +7,10 @@ x-climweb-variables: &climweb-variables
   MIGRATE_ON_STARTUP: "true"
   ADMIN_URL_PATH: ${ADMIN_URL_PATH:-admin}
   CLIMWEB_ADDITIONAL_APPS: bulletin_studio
+  # ClimWeb forces 2FA on the admin (superusers included) by default; a dev
+  # stack does without it.
+  WAGTAIL_2FA_REQUIRED: "false"
+  CLIMWEB_2FA_SUPERUSER_REQUIRED: "false"
   # Point at a running `npm run dev` in ../bulletin-studio-js to get HMR instead
   # of the vendored bundle. Resolved by the browser, so localhost is the host's.
   BULLETIN_STUDIO_DEV_SERVER: ${BULLETIN_STUDIO_DEV_SERVER:-}

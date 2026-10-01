@@ -1,6 +1,6 @@
 # ClimWeb Bulletin Studio
 
-Block-based bulletin editor for [ClimWeb](https://github.com/wmo-raf/nmhs-cms): a Wagtail
+Block-based bulletin editor for [ClimWeb](https://github.com/wmo-raf/climweb): a Wagtail
 admin entry that hosts the [Bulletin Studio](https://github.com/fgg-consultant/bulletin-studio-js)
 JS app (Vue 3 + Lexical) and publishes what it composes into ClimWeb's Products section.
 
@@ -27,25 +27,81 @@ HomePage → ProductIndexPage → ProductPage ("Agromet bulletin")
   block document, so the editor stays the single source of layout truth; the document
   itself (`doc`) is stored opaquely next to it.
 
+## Status
+
+**Alpha.** Usable end to end (templates, issues, publication, images, maps), but not yet
+run on a production site. See [Known limitations](#known-limitations) before putting it in
+front of editors.
+
+## Requirements
+
+- **ClimWeb 1.1.7 or later.** The migration builds on `products/0033`, so an older
+  ClimWeb refuses to migrate. Developed and tested against ClimWeb 1.2.2 (Python 3.10,
+  Django 5.2, Wagtail 7.3).
+- Nothing else to install: geomanager and adminboundarymanager, which the map block
+  relies on, ship with every ClimWeb. The only new dependency is `nh3` (html sanitizer).
+
+The package bundles the built frontend: there is no Node step on the ClimWeb side.
+
 ## Installation
 
-```shell
-pip install climweb-bulletin-studio
+ClimWeb runs from Docker images (`ghcr.io/wmo-raf/climweb`, deployed with
+[climweb-docker](https://github.com/wmo-raf/climweb-docker)). A `pip install` run inside a
+running container is lost the next time the container is recreated, so build the package
+into an image derived from the one you run:
+
+```dockerfile
+# Dockerfile
+FROM ghcr.io/wmo-raf/climweb:v1.2.2
+RUN /climweb/venv/bin/pip install --no-cache-dir climweb-bulletin-studio==0.1.0a1
 ```
 
-Then add the app to ClimWeb via its environment:
+Pre-releases need that exact pin (or `pip install --pre`): pip skips them otherwise.
+To try a wheel that is not on PyPI yet, `COPY` it into the image and `pip install` the
+file instead.
 
-```shell
-CLIMWEB_ADDITIONAL_APPS=bulletin_studio
-```
+Then, in climweb-docker:
 
-```shell
-climweb migrate bulletin_studio
-climweb collectstatic --noinput
-```
+1. Build the image (`docker build -t climweb-bulletin-studio .`) and point **all three**
+   ClimWeb services at it in `docker-compose.yml`: `climweb`, `climweb_celery_worker` and
+   `climweb_celery_beat`. They share the same environment, so a service still on the
+   stock image fails at startup with `No module named 'bulletin_studio'`.
+2. Enable the app in `.env`, next to any app already listed there (comma-separated):
 
-The admin menu gains a **Bulletin Studio** entry pointing at `/admin/bulletin-studio/`.
-Creating a template needs at least one ClimWeb **Product page** to host it.
+   ```shell
+   CLIMWEB_ADDITIONAL_APPS=bulletin_studio
+   ```
+
+3. `docker compose up -d`. The ClimWeb entrypoint migrates and collects static files on
+   startup (`MIGRATE_ON_STARTUP` and `COLLECT_STATICFILES_ON_STARTUP`, both on by
+   default). If your deployment disables them, run them by hand:
+
+   ```shell
+   docker compose exec climweb climweb migrate
+   docker compose exec climweb climweb collectstatic --noinput
+   ```
+
+The admin menu then shows a **Bulletin Studio** entry (`/<admin path>/bulletin-studio/`).
+The studio stores bulletins under ClimWeb **Product pages**, so at least one must exist
+before the first template can be created. The studio never creates product pages itself.
+
+Upgrading means bumping the pin and rebuilding the image. Migrations and static files
+follow on the next startup.
+
+## Known limitations
+
+- **Permissions.** Any user with access to the Wagtail admin can create, publish and
+  delete bulletins, whatever their page permissions on the Products section. For now,
+  keep the studio to trusted editors.
+- **A published bulletin is a snapshot.** The page serves the html the editor rendered.
+  A ClimWeb theme change does not restyle past issues, and a newer frontend only renders
+  a bulletin again once someone opens and saves it.
+- **Images are not reference-tracked.** Bulletins point at renditions of library images.
+  Deleting an image from the library breaks every bulletin using it, without any warning.
+- **Languages.** The studio UI exists in English, French, Spanish, Portuguese and
+  Arabic. Other ClimWeb languages (Amharic, Swahili) fall back to English.
+- **Uninstalling.** Delete the bulletin pages first. Wagtail cannot display pages whose
+  model is no longer installed.
 
 ## Layout
 
@@ -92,7 +148,7 @@ Arabic; other ClimWeb languages fall back to English).
 
 ## Store API
 
-All under `/admin/bulletin-studio/`, staff-only, CSRF-protected (send `X-CSRFToken`):
+All under `/<admin path>/bulletin-studio/`, staff-only, CSRF-protected (send `X-CSRFToken`):
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -109,6 +165,8 @@ All under `/admin/bulletin-studio/`, staff-only, CSRF-protected (send `X-CSRFTok
 
 Saving never publishes: a live issue keeps serving its published html until someone hits
 publish. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
+Publishing and deleting clear ClimWeb's page cache, as Wagtail's own editor does: in
+production, ClimWeb caches public pages for hours.
 
 Images are ClimWeb images: the studio uploads through Wagtail's own image form (which
 validates the real file format, not the extension) and hands back a **rendition** url, so
@@ -126,18 +184,111 @@ so it prints.
 
 ## Development
 
-Needs a local `climweb_dev:latest` image, built from a ClimWeb checkout (`../climweb`).
+The dev stack is the package installed (editable) into the ClimWeb dev image, next to
+its own PostGIS and Redis. Expected layout — three sibling checkouts:
 
-```shell
-cp .env.sample .env          # set DB_PASSWORD
-docker compose -f docker-compose.dev.yml up -d      # http://localhost:8010/admin
-docker compose -f docker-compose.dev.yml exec climweb /climweb/web/src/climweb/manage.py test bulletin_studio
+```
+wmo/
+  climweb/                    ClimWeb, builds climweb_dev:latest
+  bulletin-studio-js/         the frontend
+  bulletin-studio-package/    this repo
 ```
 
-`bulletin_studio/` is bind-mounted, so Python changes hot-reload; packaging changes need
-`docker compose -f docker-compose.dev.yml build climweb`. The stack starts on an empty
-database: create a superuser, a Home page and a Product page before the studio has
-anywhere to put a template.
+**1. The ClimWeb image.** Build `climweb_dev:latest` from `../climweb` (see its
+`docs/_docs/technical/development/running-dev-environment.md`). It only has to exist;
+this stack does not need ClimWeb's own compose to be running.
+
+**2. The frontend bundle.** `bulletin_studio/static/bulletin_studio/app` is a symlink to
+`../bulletin-studio-js/dist`. It is gitignored, so create it once after cloning, then
+build the JS app:
+
+```shell
+mkdir -p bulletin_studio/static/bulletin_studio
+ln -s ../../../../bulletin-studio-js/dist bulletin_studio/static/bulletin_studio/app
+
+cd ../bulletin-studio-js && npm ci && npm run build
+# no Node on the host:
+docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/src -w /src \
+  node:22-alpine sh -c 'npm ci && npm run build'
+```
+
+The compose file mounts `../bulletin-studio-js/dist` at `/bulletin-studio-js/dist`,
+which is where the symlink resolves inside the container.
+
+**3. The stack.**
+
+```shell
+cp .env.sample .env          # set DB_PASSWORD (anything, it is a local database)
+docker compose -f docker-compose.dev.yml up -d --build   # http://localhost:8010/admin
+```
+
+The first start runs every ClimWeb migration (`MIGRATE_ON_STARTUP`), which takes a
+minute; `docker compose -f docker-compose.dev.yml logs -f climweb` until daphne listens.
+2FA, which ClimWeb forces on the admin, is switched off in the compose file.
+
+**4. Seed the database.** It starts empty; `dev-bootstrap.py` creates an `admin`/`admin`
+superuser, a HomePage as the site root, a ProductIndexPage and an "Agromet bulletin"
+ProductPage for templates to live under. It is idempotent, and dev-only: it is not part of
+the package, and a real ClimWeb already has its page tree.
+
+```shell
+docker compose -f docker-compose.dev.yml exec -T climweb \
+  /climweb/web/src/climweb/manage.py shell < dev-bootstrap.py
+```
+
+The studio is then at <http://localhost:8010/admin/bulletin-studio/>.
+
+**Day to day.** `bulletin_studio/` is bind-mounted, so Python changes hot-reload;
+packaging changes (`setup.cfg`, new dependencies) need `--build`. For the frontend,
+either rebuild (`npm run build`, then `manage.py collectstatic --noinput` in the container
+— the entrypoint only collects at startup) or run `npm run dev` in
+`../bulletin-studio-js` and set `BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180` in
+`.env` (then `up -d` again). `docker compose -f docker-compose.dev.yml down -v` wipes the
+database.
+
+```shell
+docker compose -f docker-compose.dev.yml exec climweb /climweb/web/src/climweb/manage.py test bulletin_studio
+docker compose -f docker-compose.dev.yml exec climweb /climweb/web/src/climweb/manage.py makemigrations bulletin_studio
+```
+
+Check the `dependencies` of a new migration before committing it. When a change
+references a ClimWeb model, Django pins the latest migration of that app *in the ClimWeb
+it runs against*. `climweb_dev` is ClimWeb's main, ahead of every release: a dependency
+on an unreleased migration (`products/0034` and later, today) makes `migrate` fail on
+released ClimWeb with `NodeNotFoundError`. Point it back at a released migration
+(`0001_initial` depends on `products/0033`).
+
+Known ClimWeb issue: ClimWeb's main branch (after 1.2.2) removed four `HomePage` fields
+(`hero_type`, `show_banner_video`, …) without a migration, so their NOT NULL columns
+survive and creating a HomePage fails with an `IntegrityError`. `dev-bootstrap.py` works
+around it with column defaults. `BulletinStoreTests`, whose test database comes straight
+from the migrations, fails on `climweb_dev` until ClimWeb ships `home/0040`. It passes on
+the released image, the one to check a release against: install the wheel into
+`ghcr.io/wmo-raf/climweb:v1.2.2` and run `manage.py test bulletin_studio` there with
+`DJANGO_SETTINGS_MODULE=climweb.config.settings.test`.
+
+## Releasing
+
+The frontend bundle is not in git. `frontend.ref` pins the bulletin-studio-js commit a
+release ships, and the publish workflow builds that commit into the package.
+
+1. Bump `version` in `setup.cfg` (PEP 440: `0.1.0a2`, `0.1.0b1`, `0.1.0`), point
+   `frontend.ref` at the frontend commit to ship, and move the `CHANGELOG.md` entry out
+   of "unreleased".
+2. Check the package locally. In a dev checkout the bundle symlink is followed, so build
+   the frontend at that commit first:
+
+   ```shell
+   (cd ../bulletin-studio-js && git checkout "$(cat ../bulletin-studio-package/frontend.ref)" && npm ci && npm run build)
+   uv build            # or: python -m build
+   unzip -l dist/*.whl # bulletin_studio/static/bulletin_studio/app/bulletin-studio*.{js,css}
+   ```
+
+3. Tag `v<version>` and publish a GitHub release from it (tick "pre-release" for an
+   alpha or beta). `.github/workflows/publish.yml` builds the frontend, checks that the
+   bundle is in the wheel and uploads to PyPI through trusted publishing. The PyPI project
+   must list this repository and workflow as a trusted publisher. For the very first
+   upload, declare it as a "pending publisher" on PyPI.
 
 ## License
 

@@ -1,10 +1,14 @@
-# This workflow will upload a Python Package when a release is created
+# Builds the frontend bundle, packages it with the Django app and uploads the
+# result to PyPI when a GitHub release is published (pre-releases included).
+#
+# The bundle is not in git: this repo pins the bulletin-studio-js commit it
+# ships in `frontend.ref`, and the job builds that commit.
 
 name: Publish Python Package
 
 on:
   release:
-    types: [ created ]
+    types: [ published ]
 
 jobs:
   publish:
@@ -19,6 +23,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read the pinned frontend commit
+        id: frontend
+        run: echo "ref=$(tr -d '[:space:]' < frontend.ref)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the frontend
+        uses: actions/checkout@v4
+        with:
+          repository: fgg-consultant/bulletin-studio-js
+          ref: ${{ steps.frontend.outputs.ref }}
+          path: bulletin-studio-js
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: bulletin-studio-js/package-lock.json
+
+      - name: Build the frontend into the package
+        run: |
+          npm --prefix bulletin-studio-js ci
+          ./sync-frontend.sh bulletin-studio-js
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -29,11 +56,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install build
 
-      # ponytail: the JS bundle is not in git, so a release built from a bare
-      # checkout ships without a frontend. Add a node step + ./sync-frontend.sh
-      # here (or vendor the bundle) before the first real release.
       - name: Build package
         run: python -m build
+
+      # The admin page falls back to "bundle not installed" without these: a
+      # package missing them installs fine and is useless.
+      - name: Check the bundle is in the wheel
+        run: |
+          for f in bulletin-studio.js bulletin-studio.css bulletin-studio-content.css bulletin-studio-embed.js; do
+            unzip -l dist/*.whl | grep -q "bulletin_studio/static/bulletin_studio/app/$f" \
+              || { echo "::error::$f missing from the wheel"; exit 1; }
+          done
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
