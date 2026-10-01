@@ -2,9 +2,14 @@
 
 ## Project Overview
 
-`climweb-bulletin-studio` — pip-installable Django/Wagtail app that hosts the Bulletin
-Studio JS editor inside the ClimWeb admin and publishes what it composes into ClimWeb's
-Products section.
+`climweb-bulletin-studio` — a ClimWeb app, shipped as a pip package, that hosts the
+Bulletin Studio JS editor inside the ClimWeb admin and publishes what it composes into
+ClimWeb's Products section.
+
+ClimWeb ships it like `climweb-dataset-helper`: pinned in `climweb/requirements/base.in`,
+listed in ClimWeb's `INSTALLED_APPS`. Until that ClimWeb change is released, sites (and
+this dev stack) add it through `CLIMWEB_ADDITIONAL_APPS`, and the two must never be
+combined: a duplicate app label stops Django at startup.
 
 **It depends on ClimWeb** (`climweb.pages.products`), like geomanager does: there is no
 bare-Wagtail mode, and no sandbox — development happens against the real ClimWeb image
@@ -104,13 +109,15 @@ CSS trap: Tailwind 4 puts its utilities in `@layer utilities`, and any **unlayer
 (wagtail's `core.css`) beats a layered one whatever the specificity. The app's
 `src/style.css` therefore imports `tailwindcss/utilities.css` outside the layer.
 
-Naming: distribution `climweb-bulletin-studio`, module and app label `bulletin_studio`,
-admin url `/admin/bulletin-studio/`, url namespace `bulletin_studio`, display name
-"Bulletin Studio".
+Naming: repo and distribution `climweb-bulletin-studio` (`wmo-raf/`), as
+`climweb-dataset-helper`; module and app label `bulletin_studio`, admin url
+`/admin/bulletin-studio/`, url namespace `bulletin_studio`, display name "Bulletin Studio".
 
 ## Packaging and release
 
-Full procedure in README "Releasing". Things that are easy to break:
+Full procedure in README "Releasing". A release reaches sites only when ClimWeb bumps
+its `climweb-bulletin-studio==` pin (`base.in`, then `base.txt`). Things that are easy to
+break:
 - The bundle is not in git. `frontend.ref` pins the bulletin-studio-js commit a release
   ships, and `publish.yml` builds it. A local build follows the dev symlink instead, so
   it ships whatever `../bulletin-studio-js/dist` holds at that moment.

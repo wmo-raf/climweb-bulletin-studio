@@ -6,6 +6,8 @@ x-climweb-variables: &climweb-variables
   REDIS_URL: redis://bulletin-redis:6379/0
   MIGRATE_ON_STARTUP: "true"
   ADMIN_URL_PATH: ${ADMIN_URL_PATH:-admin}
+  # Until ClimWeb lists bulletin_studio in INSTALLED_APPS itself. Drop this line once
+  # climweb_dev does, or Django refuses to start (app label registered twice).
   CLIMWEB_ADDITIONAL_APPS: bulletin_studio
   # ClimWeb forces 2FA on the admin (superusers included) by default; a dev
   # stack does without it.
@@ -29,7 +31,7 @@ services:
     image: redis:alpine
 
   climweb:
-    image: bulletin-studio-package_dev
+    image: climweb-bulletin-studio_dev
     build:
       context: .
       dockerfile: ./dev.Dockerfile
