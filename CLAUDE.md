@@ -47,32 +47,54 @@ boundary tiles and default bounds through `api/map-config/`. maplibre refuses re
 urls in its sources, so `src/map.ts` makes them absolute at mount time. The basemap is
 deliberately light (OSM) where ClimWeb's dashboards are dark: a bulletin gets printed.
 
-Gotchas worth knowing (all learned from the plugin, all still true):
+Gotchas worth knowing (mostly learned from the plugin, all still true):
 - `apps.ready()` must extend `ProductPage.subpage_types` — ClimWeb hardcodes it
 - `base_form_class = WagtailAdminPageForm`: the native `ProductItemPage` form reads
   `parent.product.product_item_types` and crashes without the `products` StreamField
 - set `live=False` *before* `add_child`, or Wagtail publishes the page
 - the slug follows the title only until the first publication, then freezes
 - Django's `{# #}` comment is single-line: a multi-line one leaks into the rendered page
+- ClimWeb caches public pages (wagtail-cache, 4 h in production, off in dev) and clears
+  the cache only from Wagtail editor hooks (`after_edit_page`…). Anything that publishes
+  or deletes outside the page editor must call `views._clear_site_cache()`, or the site
+  serves stale pages. Invisible on the dev stack.
 - geomanager returns absolute urls built from the Wagtail Site (wrong host/port in dev)
   and `new URL()` escapes the `{z}/{x}/{y}` placeholders — `api.samePath()` handles both
 
 ## Development
 
+Full walkthrough in README "Development". Short version, from a fresh clone:
+
 ```shell
-cp .env.sample .env                                  # DB_PASSWORD
-docker compose -f docker-compose.dev.yml up -d       # http://localhost:8010/admin
+mkdir -p bulletin_studio/static/bulletin_studio          # the bundle symlink is gitignored
+ln -s ../../../../bulletin-studio-js/dist bulletin_studio/static/bulletin_studio/app
+(cd ../bulletin-studio-js && npm ci && npm run build)    # no host Node: node:22-alpine in docker
+cp .env.sample .env                                      # DB_PASSWORD
+docker compose -f docker-compose.dev.yml up -d --build   # http://localhost:8010/admin
+docker compose -f docker-compose.dev.yml exec -T climweb \
+  /climweb/web/src/climweb/manage.py shell < dev-bootstrap.py   # admin/admin + page tree
 docker compose -f docker-compose.dev.yml exec climweb \
   /climweb/web/src/climweb/manage.py test bulletin_studio
 ```
 
-Needs `climweb_dev:latest` built from `../climweb`. The stack starts on an **empty**
-database: create a superuser, a HomePage and a ProductPage before the studio has anywhere
-to put a template. `bulletin_studio/` is bind-mounted (Python hot-reloads); packaging
-changes need `build climweb`.
+Needs `climweb_dev:latest` built from `../climweb` (the image only; ClimWeb's own compose
+stack on :8000 is independent). The database starts **empty** — `dev-bootstrap.py`
+(idempotent) creates the superuser, HomePage, ProductIndexPage and a ProductPage the
+studio needs before it has anywhere to put a template. The first `up` runs all ClimWeb
+migrations, give it a minute. `bulletin_studio/` is bind-mounted (Python hot-reloads);
+packaging changes need `--build`.
 
 The compose file also mounts `../bulletin-studio-js/dist` at `/bulletin-studio-js/dist`,
 which is where the `static/bulletin_studio/app` symlink resolves inside the container.
+
+Dev-stack traps:
+- ClimWeb forces 2FA on the admin, superusers included: every admin url (the JSON API
+  too) 302s to `/admin/2fa/devices/new`. The compose file sets `WAGTAIL_2FA_REQUIRED` and
+  `CLIMWEB_2FA_SUPERUSER_REQUIRED` to false.
+- ClimWeb dropped `HomePage.hero_type`/`show_banner_video`/… without a migration: the
+  NOT NULL columns remain and any `HomePage` insert raises `IntegrityError`.
+  `dev-bootstrap.py` sets column defaults; `BulletinStoreTests.test_lifecycle` fails on
+  it until ClimWeb ships the migration — not a bulletin_studio regression.
 
 Frontend iteration: `npm run dev` in `../bulletin-studio-js` (port 5180, strictPort) plus
 `BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180` in `.env`. Otherwise `npm run build`
@@ -85,6 +107,26 @@ CSS trap: Tailwind 4 puts its utilities in `@layer utilities`, and any **unlayer
 Naming: distribution `climweb-bulletin-studio`, module and app label `bulletin_studio`,
 admin url `/admin/bulletin-studio/`, url namespace `bulletin_studio`, display name
 "Bulletin Studio".
+
+## Packaging and release
+
+Full procedure in README "Releasing". Things that are easy to break:
+- The bundle is not in git. `frontend.ref` pins the bulletin-studio-js commit a release
+  ships, and `publish.yml` builds it. A local build follows the dev symlink instead, so
+  it ships whatever `../bulletin-studio-js/dist` holds at that moment.
+- `MANIFEST.in` decides what ships from that dist: Vite's `index.html` and its `public/`
+  files are excluded. A new top-level file in `public/` would ship unless excluded too.
+- `makemigrations` on the dev stack runs against ClimWeb main: a new migration that
+  references a ClimWeb model depends on main's latest migration of that app, which no
+  release has yet. Re-point it at a released one (`products/0033` for 1.2.2).
+- `install_requires` floors stay loose (`django>=4.2`, `wagtail>=6.3`): ClimWeb pins
+  both, and a floor above its pin makes pip upgrade them inside ClimWeb's venv.
+- Check a release against the released image (`ghcr.io/wmo-raf/climweb:vX`, production
+  settings, admin at `/cms-admin/`), not only `climweb_dev`. The HomePage trap above only
+  exists on ClimWeb's unreleased main, and the tests pass on 1.2.2.
+- ClimWeb's static storage is `ManifestStaticFilesStorage`: `{% static %}` entries get
+  hashed names, but the chunks the bundle imports relatively
+  (`bulletin-studio-map.js`…) keep unhashed names and are not cache-busted on upgrade.
 
 ## i18n
 

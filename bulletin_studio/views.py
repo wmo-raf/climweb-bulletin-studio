@@ -12,6 +12,7 @@ import json
 import os
 
 import nh3
+from django.core.cache import cache
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import NoReverseMatch, reverse
@@ -19,6 +20,7 @@ from django.views.decorators.http import require_http_methods
 from wagtail.admin.auth import require_admin_access
 from wagtail.images import get_image_model
 from wagtail.images.forms import get_image_form
+from wagtailcache.cache import clear_cache
 
 from climweb.pages.products.models import ProductPage
 
@@ -146,6 +148,17 @@ def map_settings(request):
     return {"datasetsUrl": datasets_url, "boundaryTilesUrl": boundary_tiles_url, "bounds": bounds}
 
 
+def _clear_site_cache():
+    """ClimWeb caches its public pages (wagtail-cache, hours in production) and
+    clears them from Wagtail's `after_edit_page`/`after_delete_page` hooks, which
+    only Wagtail's own page editor fires. The studio publishes and deletes outside
+    it, so it clears the same caches itself: otherwise a republished issue keeps
+    serving its old html, a deleted one stays online and the product listing
+    misses new issues until the cache expires."""
+    clear_cache()
+    cache.clear()
+
+
 @require_admin_access
 @require_http_methods(["GET"])
 def map_config(request):
@@ -192,7 +205,10 @@ def bulletin(request, pk):
     page = get_object_or_404(BulletinPage, pk=pk)
 
     if request.method == "DELETE":
+        was_live = page.live
         page.delete()
+        if was_live:
+            _clear_site_cache()
         return HttpResponse(status=204)
 
     if request.method == "PUT":
@@ -221,6 +237,7 @@ def publish(request, pk):
     if page.is_template:
         raise Http404
     (page.get_latest_revision() or page.save_revision()).publish()
+    _clear_site_cache()
     page.refresh_from_db()
     return JsonResponse(_meta(page))
 
