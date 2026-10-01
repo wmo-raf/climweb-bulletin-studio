@@ -4,9 +4,10 @@ Block-based bulletin editor for [ClimWeb](https://github.com/wmo-raf/climweb): a
 admin entry that hosts the [Bulletin Studio](https://github.com/fgg-consultant/bulletin-studio-js)
 JS app (Vue 3 + Lexical) and publishes what it composes into ClimWeb's Products section.
 
-A ClimWeb app, packaged like [geomanager](https://github.com/wmo-raf/geomanager): an
-ordinary pip-installable Django app, but one that **depends on ClimWeb** (it subclasses
-`products.ProductItemPage`) — it will not boot in a bare Wagtail project.
+A ClimWeb app, shipped like [climweb-dataset-helper](https://github.com/wmo-raf/climweb-dataset-helper):
+an ordinary pip-installable Django app that ClimWeb pins in its requirements and lists in
+`INSTALLED_APPS`. It **depends on ClimWeb** (it subclasses `products.ProductItemPage`) and
+will not boot in a bare Wagtail project.
 
 ## How it fits into ClimWeb
 
@@ -45,6 +46,25 @@ The package bundles the built frontend: there is no Node step on the ClimWeb sid
 
 ## Installation
 
+### On ClimWeb
+
+Bulletin Studio ships with ClimWeb the way the dataset helper does: ClimWeb pins
+`climweb-bulletin-studio` in `climweb/requirements/base.in` and lists `bulletin_studio` in
+`INSTALLED_APPS`. On a ClimWeb image that includes it there is nothing to install: its
+migrations and static files run with ClimWeb's own at startup.
+
+Do **not** also set `CLIMWEB_ADDITIONAL_APPS=bulletin_studio` there. The app would be
+registered twice and Django refuses to start:
+
+```
+ImproperlyConfigured: Application labels aren't unique, duplicates: bulletin_studio
+```
+
+No ClimWeb release ships it yet (1.2.2 is the latest). Until one does, install it as an
+additional app, as below.
+
+### Before ClimWeb ships it
+
 ClimWeb runs from Docker images (`ghcr.io/wmo-raf/climweb`, deployed with
 [climweb-docker](https://github.com/wmo-raf/climweb-docker)). A `pip install` run inside a
 running container is lost the next time the container is recreated, so build the package
@@ -62,7 +82,7 @@ file instead.
 
 Then, in climweb-docker:
 
-1. Build the image (`docker build -t climweb-bulletin-studio .`) and point **all three**
+1. Build the image (`docker build -t climweb-with-studio .`) and point **all three**
    ClimWeb services at it in `docker-compose.yml`: `climweb`, `climweb_celery_worker` and
    `climweb_celery_beat`. They share the same environment, so a service still on the
    stock image fails at startup with `No module named 'bulletin_studio'`.
@@ -81,12 +101,16 @@ Then, in climweb-docker:
    docker compose exec climweb climweb collectstatic --noinput
    ```
 
-The admin menu then shows a **Bulletin Studio** entry (`/<admin path>/bulletin-studio/`).
-The studio stores bulletins under ClimWeb **Product pages**, so at least one must exist
-before the first template can be created. The studio never creates product pages itself.
+To upgrade, bump the pin and rebuild the image. When you move to a ClimWeb release that
+ships the studio, go back to the stock image **and** remove `bulletin_studio` from
+`CLIMWEB_ADDITIONAL_APPS`. The bulletins carry over: same app label, same tables.
 
-Upgrading means bumping the pin and rebuilding the image. Migrations and static files
-follow on the next startup.
+### First use
+
+The admin menu shows a **Bulletin Studio** entry (`/<admin path>/bulletin-studio/`,
+`/cms-admin/` by default). The studio stores bulletins under ClimWeb **Product pages**, so
+at least one must exist before the first template can be created. The studio never
+creates product pages itself.
 
 ## Known limitations
 
@@ -191,7 +215,7 @@ its own PostGIS and Redis. Expected layout — three sibling checkouts:
 wmo/
   climweb/                    ClimWeb, builds climweb_dev:latest
   bulletin-studio-js/         the frontend
-  bulletin-studio-package/    this repo
+  climweb-bulletin-studio/    this repo
 ```
 
 **1. The ClimWeb image.** Build `climweb_dev:latest` from `../climweb` (see its
@@ -279,16 +303,20 @@ release ships, and the publish workflow builds that commit into the package.
    the frontend at that commit first:
 
    ```shell
-   (cd ../bulletin-studio-js && git checkout "$(cat ../bulletin-studio-package/frontend.ref)" && npm ci && npm run build)
+   (cd ../bulletin-studio-js && git checkout "$(cat ../climweb-bulletin-studio/frontend.ref)" && npm ci && npm run build)
    uv build            # or: python -m build
    unzip -l dist/*.whl # bulletin_studio/static/bulletin_studio/app/bulletin-studio*.{js,css}
    ```
 
-3. Tag `v<version>` and publish a GitHub release from it (tick "pre-release" for an
-   alpha or beta). `.github/workflows/publish.yml` builds the frontend, checks that the
-   bundle is in the wheel and uploads to PyPI through trusted publishing. The PyPI project
-   must list this repository and workflow as a trusted publisher. For the very first
-   upload, declare it as a "pending publisher" on PyPI.
+3. Tag `<version>` (`0.1.0a1`, no `v`, as climweb-dataset-helper does) and publish a
+   GitHub release from it, ticking "pre-release" for an alpha or beta.
+   `.github/workflows/publish.yml` builds the frontend, checks that the bundle is in the
+   wheel and uploads to PyPI through trusted publishing. On PyPI, the `climweb-bulletin-studio`
+   project's trusted publisher is repository `wmo-raf/climweb-bulletin-studio`, workflow
+   `publish.yml`, environment `pypi`. Before the very first upload, declare it as a
+   "pending publisher".
+4. Bump the pin in ClimWeb (`climweb/requirements/base.in`, then regenerate `base.txt`).
+   Sites get the new version with the next ClimWeb release.
 
 ## License
 
