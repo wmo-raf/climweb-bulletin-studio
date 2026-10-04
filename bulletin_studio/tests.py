@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.urls import reverse
+from django.utils import timezone
 from wagtail.models import Page, Site
 
 from climweb.base.models.snippets import Product, ServiceCategory
@@ -58,6 +59,8 @@ class BulletinStoreTests(TestCase):
             "title": "Decadal bulletin no 12", "doc": tpl["doc"],
             "html": "<p>draft</p>", "isTemplate": False, "parent": tpl["parent"]}).json()
         self.assertEqual(issue["parent"], self.product.pk)
+        # its date is ClimWeb's "effective from", the day it was created by default
+        self.assertEqual(issue["date"], timezone.localdate().isoformat())
 
         url = reverse("bulletin_studio:bulletin", args=[issue["id"]])
         # Saving is a draft, and the html is sanitized on the way in.
@@ -66,6 +69,7 @@ class BulletinStoreTests(TestCase):
             "html": "<p>rain</p><script>alert(1)</script>",
             "isTemplate": False}), content_type="application/json").json()
         self.assertFalse(saved["live"])
+        self.assertEqual(saved["date"], issue["date"], "read back from the database, still a date")
         self.assertEqual(BulletinPage.objects.get(pk=issue["id"]).html, "<p>rain</p>")
 
         published = self.client.post(

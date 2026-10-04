@@ -10,7 +10,7 @@ public page keeps serving the last published `html` while an issue is reworked.
 """
 import json
 import os
-from datetime import date, time
+from datetime import date, datetime, time
 
 import nh3
 from django.apps import apps
@@ -18,6 +18,7 @@ from django.core.cache import cache
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import NoReverseMatch, reverse
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from wagtail.admin.auth import require_admin_access
 from wagtail.images import get_image_model
@@ -74,6 +75,14 @@ def _ms(dt):
     return int(dt.timestamp() * 1000) if dt else None
 
 
+def _day(value):
+    """An issue's date: ProductItemPage.date, which defaults to `timezone.now` - a
+    datetime on a page just created, a date once read back from the database."""
+    if isinstance(value, datetime):
+        value = timezone.localdate(value) if timezone.is_aware(value) else value.date()
+    return value.isoformat() if value else None
+
+
 def _meta(page, parent=None):
     """Dashboard listing shape - no doc, the list view never renders it."""
     parent = parent or page.get_parent()
@@ -81,6 +90,8 @@ def _meta(page, parent=None):
         "id": page.pk,
         "title": page.title,
         "isTemplate": page.is_template,
+        # what the issue is about: its forecast maps and "issue date" blocks follow it
+        "date": _day(page.date),
         "parent": parent.pk,
         "parentTitle": parent.title,
         "blockCount": page.block_count,
