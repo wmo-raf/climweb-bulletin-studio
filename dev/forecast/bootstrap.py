@@ -1,6 +1,7 @@
 # Seeds the dev database with what a forecast pull needs, from the meteoburkina
 # fixtures: the 11 cities, the Burkina Faso boundaries (country + 13 regions), the
-# country in the boundary settings, and the yr pull switched on. Idempotent. Run it
+# country in the boundary settings, the yr pull switched on, and 06:00 as the day's
+# forecast for the map. Idempotent. Run it
 # through the Django shell, after dev-bootstrap.py:
 #
 #   docker compose -f docker-compose.dev.yml exec -T climweb \
@@ -14,6 +15,7 @@ import json
 import pathlib
 
 from adminboundarymanager.models import AdminBoundary, AdminBoundarySettings, Country
+from bulletin_studio.forecast.models import ForecastMapSettings
 from django.contrib.gis.geos import GEOSGeometry, MultiPolygon, Point
 from forecastmanager.forecast_settings import ForecastSetting
 from forecastmanager.models import City
@@ -57,3 +59,11 @@ forecast_setting.forecast_provider = "yr"
 forecast_setting.auto_publish_forecasts = True
 forecast_setting.save()
 print(f"auto forecast: {forecast_setting.forecast_provider}, published")
+
+# The forecast map: the 06:00 period is the day's forecast, as on meteoburkina,
+# drawn for today and tomorrow after each pull.
+map_settings = ForecastMapSettings.for_site(site)
+if not map_settings.periods:
+    map_settings.periods, map_settings.days_ahead = ["06:00"], 1
+    map_settings.save()
+print(f"forecast map: periods {map_settings.periods}, {map_settings.days_ahead} day(s) ahead")

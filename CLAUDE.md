@@ -62,6 +62,14 @@ values are the national met office's, displayed as stored — never aggregated o
 recomputed. `forecast/render.py` is pure (no Django, no file paths); fixtures and the
 design-loop script live in `dev/forecast/`, outside the package, so they never ship.
 
+The trigger: forecastmanager's Wagtail hooks `after_generate_forecast` (yr pulls only —
+Open-Meteo, the grid editor and the API fire nothing) and `after_forecast_add_from_form`
+queue the Celery task `render_daily_forecast_maps` on commit; it draws the periods set in
+Settings > Forecast map (`ForecastMapSettings`, stored as "HH:MM", not as FKs — a
+migration depending on forecastmanager would break a ClimWeb without it), today to
+`days_ahead`, into `media/forecast_snapshots/`. forecastmanager is optional in ClimWeb
+(`IS_METEOROLOGICAL`): import it lazily, never at the top of a module the app loads.
+
 Gotchas worth knowing (mostly learned from the plugin, all still true):
 - `apps.ready()` must extend `ProductPage.subpage_types` — ClimWeb hardcodes it
 - `base_form_class = WagtailAdminPageForm`: the native `ProductItemPage` form reads

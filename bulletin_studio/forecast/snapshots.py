@@ -8,6 +8,8 @@ Import this module lazily: forecastmanager is only installed on meteorological
 ClimWeb sites (IS_METEOROLOGICAL), and bulletin_studio must start without it.
 """
 import json
+import logging
+from datetime import datetime, timedelta
 from functools import reduce
 
 import cairosvg
@@ -15,9 +17,13 @@ from adminboundarymanager.models import AdminBoundary
 from django.contrib.staticfiles import finders
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.utils import timezone
 from forecastmanager.models import CityForecast, Forecast
+from wagtail.models import Site
 
 from . import render
+
+logger = logging.getLogger(__name__)
 
 MEDIA_DIR = "forecast_snapshots"
 
@@ -109,3 +115,26 @@ def write_snapshot(date, period_time, preset="bulletin", settings=None):
             default_storage.delete(name)
         default_storage.save(name, ContentFile(content))
     return snapshot_name(date, period_time, preset, "png")
+
+
+def render_daily(today=None):
+    """The maps of the periods the office set as the forecast of the day, from today
+    to `days_ahead` days later - what runs after each forecast pull. A slot with
+    nothing published is skipped: a past period a fresh pull never wrote, a day the
+    office has not issued yet. Returns the stored PNG names."""
+    from .models import ForecastMapSettings
+
+    settings = ForecastMapSettings.for_site(Site.objects.get(is_default_site=True))
+    if not settings.periods:
+        logger.info("Forecast map: no daily period set (Settings > Forecast map), nothing to draw.")
+        return []
+    today = today or timezone.localdate()
+    stored = []
+    for offset in range(settings.days_ahead + 1):
+        day = today + timedelta(days=offset)
+        for period in settings.periods:
+            name = write_snapshot(day, datetime.strptime(period, "%H:%M").time())
+            if name:
+                stored.append(name)
+    logger.info("Forecast map: %d map(s) drawn: %s", len(stored), ", ".join(stored) or "-")
+    return stored

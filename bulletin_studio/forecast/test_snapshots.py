@@ -76,3 +76,29 @@ class ForecastSnapshotTests(TestCase):
             self.assertEqual(sorted(files), ["06h00-bulletin.png", "06h00-bulletin.svg"],
                              "a new render replaces the file, no suffixed copies")
             self.assertIsNone(write_snapshot(DAY, time(12)))
+
+    def test_daily_render_draws_the_periods_the_office_set(self):
+        from bulletin_studio.forecast.models import ForecastMapSettings, period_choices
+        from bulletin_studio.forecast.snapshots import render_daily
+
+        self.assertIn(("06:00", "Journalière (06:00)"), period_choices())
+        settings = ForecastMapSettings.for_site(Site.objects.get(is_default_site=True))
+        with tempfile.TemporaryDirectory() as media, override_settings(MEDIA_ROOT=media):
+            self.assertEqual(render_daily(today=DAY), [], "no period set, nothing drawn")
+            settings.periods, settings.days_ahead = ["06:00", "12:00"], 1
+            settings.save()
+            # 12:00 is a draft and the next day has nothing: only one map.
+            self.assertEqual(render_daily(today=DAY), ["forecast_snapshots/2026-10-05/06h00-bulletin.png"])
+
+    def test_forecast_hooks_queue_the_render(self):
+        from unittest import mock
+
+        from wagtail import hooks
+
+        with mock.patch("bulletin_studio.tasks.render_daily_forecast_maps.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                for fn in hooks.get_hooks("after_generate_forecast"):
+                    fn([1, 2])
+                for fn in hooks.get_hooks("after_forecast_add_from_form"):
+                    fn()
+        self.assertEqual(delay.call_count, 2)

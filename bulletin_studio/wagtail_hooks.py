@@ -1,9 +1,14 @@
+import logging
+
+from django.db import transaction
 from django.urls import include, path, reverse
 from django.utils.translation import gettext_lazy as _
 from wagtail import hooks
 from wagtail.admin.menu import MenuItem
 
 from . import urls as bulletin_studio_urls
+
+logger = logging.getLogger(__name__)
 
 
 @hooks.register("register_admin_urls")
@@ -19,3 +24,30 @@ def register_bulletin_studio_menu_item():
     # behind the hash. Nothing else to hang off the Wagtail menu.
     return MenuItem(_("Bulletin Studio"), reverse("bulletin_studio:app"),
                     icon_name="doc-full", order=200)
+
+
+# forecastmanager fires these after writing forecasts: the yr pull (not Open-Meteo's)
+# and the admin form. Nothing fires them on a site without forecastmanager.
+@hooks.register("after_generate_forecast")
+def render_forecast_maps_after_pull(forecast_pks):
+    _queue_forecast_maps()
+
+
+@hooks.register("after_forecast_add_from_form")
+def render_forecast_maps_after_form():
+    _queue_forecast_maps()
+
+
+def _queue_forecast_maps():
+    """Queue the render, never run it here: the pull hook runs inside ClimWeb's
+    forecast task, under its 30-minute lock. And never fail it: the forecast is
+    already committed, a broker hiccup only costs this round of maps."""
+    from .tasks import render_daily_forecast_maps
+
+    def send():
+        try:
+            render_daily_forecast_maps.delay()
+        except Exception:
+            logger.exception("Forecast map: could not queue the render")
+
+    transaction.on_commit(send)

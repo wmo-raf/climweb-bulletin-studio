@@ -76,3 +76,7 @@ class BulletinPage(ProductItemPage):
         if self.is_template:
             raise Http404
         return super().serve(request, *args, **kwargs)
+
+
+# Per-site setting of the forecast map; lives with the rest of the forecast code.
+from .forecast.models import ForecastMapSettings  # noqa: E402, F401
