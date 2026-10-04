@@ -194,7 +194,12 @@ Saving never publishes: a live issue keeps serving its published html until some
 publish. "New bulletin" asks the server for the issue: a draft dated for the day, titled
 "{template} — {date}" in the site's language, its forecast maps frozen. Its html is
 rendered by the studio when it is published — until then, neither the studio nor Wagtail's
-own publish actions will put it online. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
+own publish actions will put it online.
+
+A template can also prepare its issue every day ("Daily draft at", in the template's
+header, site time by the quarter hour): a Celery beat task makes the draft once that time
+has passed, and a forecaster reviews and publishes it. Nothing is published
+automatically. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
 Publishing and deleting clear ClimWeb's page cache, as Wagtail's own editor does: in
 production, ClimWeb caches public pages for hours.
 

@@ -1,5 +1,5 @@
 """A new issue of a template, made on the server: by "New bulletin" in the studio, and
-by the daily draft task.
+by the daily draft task (`create_daily_drafts`, every quarter of an hour).
 
 The issue is a draft whose `doc` is the template's, with its forecast blocks frozen
 for the issue's date, and whose `html` is empty: only the studio renders html, and it
@@ -8,6 +8,7 @@ issue offline). So the only part of the block schema Python knows is the forecas
 block, and how columns nest blocks - nothing about layout.
 """
 import copy
+import logging
 from datetime import datetime, timedelta
 
 from django.apps import apps
@@ -16,6 +17,8 @@ from django.utils import timezone, translation
 from django.utils.formats import date_format
 
 from .models import BulletinPage
+
+logger = logging.getLogger(__name__)
 
 
 def walk(blocks):
@@ -79,7 +82,7 @@ def create_issue(template, day=None, user=None):
     """The issue of `template` for `day` (today, for the site), as a draft under the
     same product page."""
     template = template.get_latest_revision_as_object()
-    day = day or timezone.localdate()
+    day = day or timezone.localdate(timezone=timezone.get_default_timezone())
     doc = copy.deepcopy(template.doc) if isinstance(template.doc, dict) else {}
     freeze_forecasts(doc.get("blocks"), day, user=user)
 
@@ -91,3 +94,25 @@ def create_issue(template, day=None, user=None):
     parent.add_child(instance=issue)
     issue.save_revision(user=user)
     return issue
+
+
+def create_daily_drafts(now=None):
+    """The issue of the day of each template set to prepare one, once its time has
+    come (site time). Once a day per template: not when an issue of today exists
+    already (made by hand, say), nor again after its draft was deleted."""
+    now = timezone.localtime(now, timezone.get_default_timezone())
+    today = now.date()
+    due = (BulletinPage.objects.filter(is_template=True, daily_draft_at__lte=now.time())
+           .exclude(last_daily_draft=today))
+    made = []
+    for template in due:
+        try:
+            if not template.issues.filter(date=today).exists():
+                made.append(create_issue(template, today))
+        except Exception:  # the next run tries again; the other templates go on
+            logger.exception("Daily draft: could not prepare today's issue of %r", template.title)
+            continue
+        BulletinPage.objects.filter(pk=template.pk).update(last_daily_draft=today)
+    if made:
+        logger.info("Daily draft: %s", ", ".join(issue.title for issue in made))
+    return made

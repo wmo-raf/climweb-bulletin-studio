@@ -3,7 +3,7 @@ frozen, kept offline until the studio has rendered it."""
 import hashlib
 import json
 import tempfile
-from datetime import date, time
+from datetime import date, datetime, time
 from types import SimpleNamespace
 from unittest import skipUnless
 
@@ -21,7 +21,7 @@ from wagtail.models import Page, Site
 from climweb.base.models.snippets import Product, ServiceCategory
 from climweb.pages.products.models import ProductIndexPage, ProductPage
 
-from .issues import issue_title
+from .issues import create_daily_drafts, issue_title
 from .models import BulletinPage
 
 DAY = date(2026, 10, 5)
@@ -106,6 +106,48 @@ class IssueTests(IssueTestCase):
         self.assertFalse([r for fn in hooks.get_hooks("before_publish_page") if (r := fn(request, page.specific))])
         self.assertEqual(self.client.post(publish).status_code, 200)
         self.assertTrue(BulletinPage.objects.get(pk=issue["id"]).live)
+
+
+class DailyDraftTests(IssueTestCase):
+    def put(self, pk, **extra):
+        page = self.client.get(reverse("bulletin_studio:bulletin", args=[pk])).json()
+        return self.client.put(reverse("bulletin_studio:bulletin", args=[pk]), json.dumps({
+            "title": page["title"], "doc": page["doc"], "html": "", "isTemplate": page["isTemplate"],
+            **extra}), content_type="application/json")
+
+    def test_a_template_sets_its_time_by_the_quarter_hour(self):
+        pk = self.template["id"]
+        self.assertIsNone(self.template["dailyDraftAt"])
+        self.assertEqual(self.put(pk, dailyDraftAt="06:10").json()["dailyDraftAt"], "06:00")
+        self.assertEqual(BulletinPage.objects.get(pk=pk).daily_draft_at, time(6))
+        self.assertEqual(self.put(pk).json()["dailyDraftAt"], "06:00", "absent: unchanged")
+        self.assertIsNone(self.put(pk, dailyDraftAt="").json()["dailyDraftAt"])
+        self.assertEqual(self.put(pk, dailyDraftAt="25:00").status_code, 400)
+
+        issue = self.new_issue().json()
+        self.assertIsNone(self.put(issue["id"], dailyDraftAt="06:00").json()["dailyDraftAt"],
+                          "only templates prepare drafts")
+
+    def test_one_draft_a_day_once_its_time_has_come(self):
+        at = lambda d, h, m=0: timezone.make_aware(datetime(2026, 10, d, h, m))  # noqa: E731
+        BulletinPage.objects.filter(pk=self.template["id"]).update(daily_draft_at=time(6))
+
+        self.assertEqual(create_daily_drafts(at(5, 5, 59)), [])
+        [draft] = create_daily_drafts(at(5, 6))
+        self.assertEqual((draft.date, draft.source_template_id, draft.live, draft.html),
+                         (DAY, self.template["id"], False, ""))
+        self.assertEqual(create_daily_drafts(at(5, 6, 15)), [], "once a day")
+        draft.delete()
+        self.assertEqual(create_daily_drafts(at(5, 6, 30)), [], "a draft deleted by hand stays deleted")
+
+        [tomorrow] = create_daily_drafts(at(6, 6))
+        self.assertEqual(tomorrow.date, date(2026, 10, 6))
+
+        # an issue of the day made by hand beforehand: no second one
+        BulletinPage.objects.filter(pk=self.template["id"]).update(daily_draft_at=time(7))
+        self.new_issue({"date": "2026-10-07"})
+        self.assertEqual(create_daily_drafts(at(7, 7)), [])
+        self.assertEqual(BulletinPage.objects.filter(source_template_id=self.template["id"]).count(), 2)
 
 
 @skipUnless(apps.is_installed("forecastmanager"), "forecastmanager is not installed")

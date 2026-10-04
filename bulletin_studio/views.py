@@ -14,6 +14,7 @@ from datetime import date, datetime, time
 
 import nh3
 from django.apps import apps
+from django.conf import settings
 from django.core.cache import cache
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -66,6 +67,8 @@ ALLOWED_ATTRS = {
 def app(request):
     return render(request, "bulletin_studio/app.html", {
         "dev_server": DEV_SERVER,
+        # the site's: the daily draft runs on it, whatever the admin user's own zone
+        "time_zone": settings.TIME_ZONE,
         # no forecastmanager, no forecast block: the app leaves it out of its palette
         "forecast_url": reverse("bulletin_studio:forecast") if apps.is_installed("forecastmanager") else None,
     })
@@ -78,8 +81,9 @@ def _ms(dt):
 def _day(value):
     """An issue's date: ProductItemPage.date, which defaults to `timezone.now` - a
     datetime on a page just created, a date once read back from the database."""
-    if isinstance(value, datetime):
-        value = timezone.localdate(value) if timezone.is_aware(value) else value.date()
+    if isinstance(value, datetime):  # stored in the site's zone, as Django does
+        value = (timezone.localdate(value, timezone.get_default_timezone())
+                 if timezone.is_aware(value) else value.date())
     return value.isoformat() if value else None
 
 
@@ -92,6 +96,7 @@ def _meta(page, parent=None):
         "isTemplate": page.is_template,
         # what the issue is about: its forecast maps and "issue date" blocks follow it
         "date": _day(page.date),
+        "dailyDraftAt": f"{page.daily_draft_at:%H:%M}" if page.daily_draft_at else None,
         "parent": parent.pk,
         "parentTitle": parent.title,
         "blockCount": page.block_count,
@@ -129,7 +134,20 @@ def _read_body(request):
     if not isinstance(html, str):
         raise ValueError("html must be a string")
 
+    body = {}
+    if "dailyDraftAt" in data:  # absent: left as it is
+        daily = data["dailyDraftAt"]
+        try:
+            daily = time.fromisoformat(daily) if daily else None
+        except (TypeError, ValueError) as exc:
+            raise ValueError("dailyDraftAt must be HH:MM or empty") from exc
+        # The drafts are prepared every quarter of an hour: a time in between would
+        # wait for the next run, and one after 23:45 would never come.
+        body["daily_draft_at"] = daily and daily.replace(minute=daily.minute - daily.minute % 15,
+                                                         second=0, microsecond=0)
+
     return {
+        **body,
         "title": title,
         "doc": doc,
         "html": nh3.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS,
@@ -208,6 +226,8 @@ def bulletins(request):
         # live=False must be set *before* add_child, or Wagtail publishes the page.
         page = BulletinPage(doc=body["doc"], html=body["html"],
                             is_template=body["is_template"], live=False)
+        if page.is_template:
+            page.daily_draft_at = body.get("daily_draft_at")
         page.apply_title(body["title"], parent=parent)
         parent.add_child(instance=page)
         page.save_revision()
@@ -236,10 +256,13 @@ def bulletin(request, pk):
             return JsonResponse({"error": str(exc)}, status=400)
         page.doc, page.html = body["doc"], body["html"]
         page.apply_title(body["title"])
+        if page.is_template and "daily_draft_at" in body:
+            page.daily_draft_at = body["daily_draft_at"]
         # A page that was never published has no public version to protect, so the
         # row follows the draft and the dashboard stays in sync. Once live, only
-        # the revision moves until someone publishes.
-        if not page.live:
+        # the revision moves until someone publishes. A template has no public
+        # version at all, and the daily draft reads its row.
+        if not page.live or page.is_template:
             page.save()
         page.save_revision()
         return JsonResponse(_full(page))

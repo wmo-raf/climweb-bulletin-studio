@@ -47,6 +47,11 @@ class BulletinPage(ProductItemPage):
     source_template = models.ForeignKey(
         "self", null=True, blank=True, editable=False, on_delete=models.SET_NULL,
         related_name="issues")
+    # A template only: each day at this time (site time, a quarter of an hour), a draft
+    # issue is prepared from it - see `issues.create_daily_drafts`.
+    daily_draft_at = models.TimeField(null=True, blank=True, editable=False)
+    # The last day it was prepared: a draft deleted by hand is not prepared again.
+    last_daily_draft = models.DateField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = _("Bulletin")

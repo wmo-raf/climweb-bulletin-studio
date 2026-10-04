@@ -58,7 +58,8 @@ def available(day=None):
     days later: the periods the office set as the forecast of the day, and the maps
     drawn so far. "Today" is the site's, as forecastmanager has it, not the browser's."""
     settings = ForecastMapSettings.for_site(Site.objects.get(is_default_site=True))
-    today = timezone.localdate()
+    # the site's day, not that of the admin user's own zone (require_admin_access sets it)
+    today = timezone.localdate(timezone=timezone.get_default_timezone())
     day = day or today
     labels = period_labels()
     maps = []

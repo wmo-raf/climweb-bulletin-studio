@@ -39,6 +39,13 @@ field — and `html` left empty. Only the studio renders html; it does on every 
 forecast block and how columns nest blocks are the only parts of the block schema Python
 knows.
 
+The daily draft: a template's `daily_draft_at` (set in the studio, site time, floored to
+the quarter hour) makes the beat task `create_daily_drafts` (`bulletin-studio-daily-drafts`,
+every 15 minutes, registered on ClimWeb's app through `settings.CELERY_APP`) prepare its
+issue of the day once that time has passed. Once a day per template: `last_daily_draft`
+keeps a draft deleted by hand from coming back, and an issue of the day made by hand
+counts. A human always publishes.
+
 The Python side is deliberately thin: a menu entry, one model, one public template, eight
 JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app:
 
@@ -122,8 +129,10 @@ docker compose -f docker-compose.dev.yml exec climweb \
 
 The stack runs ClimWeb's Celery too: `beat` sends the hourly forecast pull
 (`download-forecast-every-hour`), `worker` runs it. Neither reloads code: restart `worker`
-after editing a task or a hook. To pull now, through the worker as beat would:
+after editing a task or a hook, and `beat` after adding a periodic one. To pull now,
+through the worker as beat would:
 `manage.py shell -c "from climweb.base.tasks import download_forecast; download_forecast.delay()"`.
+The daily drafts likewise: `from bulletin_studio.tasks import create_daily_drafts; create_daily_drafts.delay()`.
 
 Needs `climweb_dev:latest` built from `../climweb` (the image only; ClimWeb's own compose
 stack on :8000 is independent). The database starts **empty** — `dev-bootstrap.py`
