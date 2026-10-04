@@ -178,7 +178,9 @@ docker compose -f docker-compose.dev.yml exec climweb \
 ```
 
 A pull only returns hours to come: on a fresh database, today's early periods do not
-exist; once written by earlier pulls, a past period stays as it was last pulled.
+exist; once written by earlier pulls, a past period stays as it was last pulled. To get a
+map for today anyway, `manage.py shell < dev/forecast/fill_today.py` copies the nearest
+later forecast of each daily period onto today (test data) and redraws.
 
 CSS trap: Tailwind 4 puts its utilities in `@layer utilities`, and any **unlayered** rule
 (wagtail's `core.css`) beats a layered one whatever the specificity. The app's
