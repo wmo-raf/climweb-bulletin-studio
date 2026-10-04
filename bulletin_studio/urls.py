@@ -6,6 +6,7 @@ urlpatterns = [
     path("api/product-pages/", views.product_pages, name="product_pages"),
     path("api/images/", views.images, name="images"),
     path("api/map-config/", views.map_config, name="map_config"),
+    path("api/forecast/", views.forecast, name="forecast"),
     path("api/bulletins/", views.bulletins, name="bulletins"),
     path("api/bulletins/<int:pk>/", views.bulletin, name="bulletin"),
     path("api/bulletins/<int:pk>/publish/", views.publish, name="publish"),

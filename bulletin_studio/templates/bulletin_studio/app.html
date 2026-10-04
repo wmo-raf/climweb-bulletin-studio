@@ -28,6 +28,7 @@
          data-product-pages-url="{% url 'bulletin_studio:product_pages' %}"
          data-images-url="{% url 'bulletin_studio:images' %}"
          data-map-config-url="{% url 'bulletin_studio:map_config' %}"
+         {% if forecast_url %}data-forecast-url="{{ forecast_url }}"{% endif %}
          {# the admin user's active language: the app translates itself with it #}
          data-locale="{{ LANGUAGE_CODE }}"
          data-csrf-token="{{ csrf_token }}">

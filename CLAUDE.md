@@ -31,7 +31,7 @@ Predecessors, both worth reading before changing anything here:
 starting point an editor duplicates; issues are its siblings, published as real product
 items. The template is a point of departure only — nothing stays linked afterwards.
 
-The Python side is deliberately thin: a menu entry, one model, one public template, six
+The Python side is deliberately thin: a menu entry, one model, one public template, seven
 JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app:
 
 - `doc` — the editor's JSON, stored opaquely (no Python mirror to keep in sync)
@@ -69,6 +69,13 @@ Settings > Forecast map (`ForecastMapSettings`, stored as "HH:MM", not as FKs �
 migration depending on forecastmanager would break a ClimWeb without it), today to
 `days_ahead`, into `media/forecast_snapshots/`. forecastmanager is optional in ClimWeb
 (`IS_METEOROLOGICAL`): import it lazily, never at the top of a module the app loads.
+
+That file is the latest render, rewritten on each pull: a bulletin references a frozen
+copy instead. `forecast/library.py` promotes the map into the Wagtail library (collection
+"Forecast maps"), once per version. The version is the PNG's sha1, which Wagtail already
+stores as `file_hash`, so there is no model of our own. `api/forecast/` lists the maps
+drawn (GET) and promotes one (POST); `data-forecast-url` reaches the JS only when
+forecastmanager is installed.
 
 Gotchas worth knowing (mostly learned from the plugin, all still true):
 - `apps.ready()` must extend `ProductPage.subpage_types` — ClimWeb hardcodes it

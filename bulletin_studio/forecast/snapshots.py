@@ -26,6 +26,8 @@ from . import render
 logger = logging.getLogger(__name__)
 
 MEDIA_DIR = "forecast_snapshots"
+# What is drawn after each pull; the other presets only through the command.
+DAILY_PRESETS = ("bulletin",)
 
 
 def forecast_collection(date, period_time):
@@ -133,8 +135,9 @@ def render_daily(today=None):
     for offset in range(settings.days_ahead + 1):
         day = today + timedelta(days=offset)
         for period in settings.periods:
-            name = write_snapshot(day, datetime.strptime(period, "%H:%M").time())
-            if name:
-                stored.append(name)
+            for preset in DAILY_PRESETS:
+                name = write_snapshot(day, datetime.strptime(period, "%H:%M").time(), preset)
+                if name:
+                    stored.append(name)
     logger.info("Forecast map: %d map(s) drawn: %s", len(stored), ", ".join(stored) or "-")
     return stored

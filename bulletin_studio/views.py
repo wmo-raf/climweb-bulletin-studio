@@ -10,8 +10,10 @@ public page keeps serving the last published `html` while an issue is reworked.
 """
 import json
 import os
+from datetime import date, time
 
 import nh3
+from django.apps import apps
 from django.core.cache import cache
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -24,6 +26,7 @@ from wagtailcache.cache import clear_cache
 
 from climweb.pages.products.models import ProductPage
 
+from .forecast import MAPS_COLLECTION
 from .models import BulletinPage
 
 MAX_BODY = 5 * 1024 * 1024  # a bulletin is text + image references, not a payload dump
@@ -60,7 +63,11 @@ ALLOWED_ATTRS = {
 
 @require_admin_access
 def app(request):
-    return render(request, "bulletin_studio/app.html", {"dev_server": DEV_SERVER})
+    return render(request, "bulletin_studio/app.html", {
+        "dev_server": DEV_SERVER,
+        # no forecastmanager, no forecast block: the app leaves it out of its palette
+        "forecast_url": reverse("bulletin_studio:forecast") if apps.is_installed("forecastmanager") else None,
+    })
 
 
 def _ms(dt):
@@ -283,4 +290,44 @@ def images(request):
     qs = Image.objects.all()
     if q:
         qs = qs.filter(title__icontains=q)
+    else:
+        # The forecast maps promoted day after day would push the site's own images
+        # off the list. They have their own block; a search still finds them.
+        qs = qs.exclude(collection__name=MAPS_COLLECTION)
     return JsonResponse([_image(i) for i in qs.order_by("-created_at")[:IMAGE_PAGE]], safe=False)
+
+
+@require_admin_access
+@require_http_methods(["GET", "POST"])
+def forecast(request):
+    """The forecast maps for the forecast block. GET lists what is drawn from `date`
+    (today by default); POST promotes one into the library, and the block freezes the
+    image it gets back in the issue. Only on a meteorological ClimWeb."""
+    if not apps.is_installed("forecastmanager"):
+        raise Http404
+    from .forecast import library
+
+    if request.method == "GET":
+        try:
+            day = date.fromisoformat(request.GET["date"]) if request.GET.get("date") else None
+        except ValueError:
+            return JsonResponse({"error": "date must be YYYY-MM-DD"}, status=400)
+        return JsonResponse(library.available(day))
+
+    if not request.user.has_perm("wagtailimages.add_image"):
+        return JsonResponse({"error": "not allowed to add images"}, status=403)
+    try:
+        data = json.loads(request.body or b"{}")
+        day = date.fromisoformat(data["date"])
+        period = time.fromisoformat(data["period"])
+        preset = data.get("preset", library.DAILY_PRESETS[0])
+    except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError, ValueError, AttributeError):
+        return JsonResponse({"error": "expected {date: YYYY-MM-DD, period: HH:MM}"}, status=400)
+    if preset not in library.DAILY_PRESETS:  # also keeps it out of the file path
+        return JsonResponse({"error": f"preset must be one of {', '.join(library.DAILY_PRESETS)}"},
+                            status=400)
+    promoted = library.promote(day, period, preset, user=request.user)
+    if promoted is None:
+        return JsonResponse({"error": "no forecast map for this date and period"}, status=404)
+    image, details = promoted
+    return JsonResponse({**_image(image), **details})

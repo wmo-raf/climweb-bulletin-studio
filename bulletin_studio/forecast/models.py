@@ -16,14 +16,18 @@ from wagtail.admin.panels import FieldPanel
 from wagtail.contrib.settings.models import BaseSiteSetting, register_setting
 
 
-def period_choices():
-    """The site's forecast periods, as forecastmanager defines them."""
+def period_labels():
+    """The site's forecast periods, as forecastmanager defines them: {"06:00": label}."""
     if not apps.is_installed("forecastmanager"):
-        return []
+        return {}
     from forecastmanager.forecast_settings import ForecastPeriod
 
-    return [(f"{p.forecast_effective_time:%H:%M}", f"{p.label} ({p.forecast_effective_time:%H:%M})")
-            for p in ForecastPeriod.objects.order_by("forecast_effective_time")]
+    return {f"{p.forecast_effective_time:%H:%M}": p.label
+            for p in ForecastPeriod.objects.order_by("forecast_effective_time")}
+
+
+def period_choices():
+    return [(time, f"{label} ({time})") for time, label in period_labels().items()]
 
 
 class ForecastMapSettingsForm(WagtailAdminModelForm):

@@ -180,6 +180,8 @@ All under `/<admin path>/bulletin-studio/`, staff-only, CSRF-protected (send `X-
 | `GET` | `api/images/` | browse the ClimWeb image library (`?q=` filters on title) |
 | `GET` | `api/map-config/` | where geomanager serves its layers, admin boundary tiles, country bounds |
 | `POST` | `api/images/` | upload an image into that library |
+| `GET` | `api/forecast/` | the forecast maps drawn from `?date=` (today by default), and the periods they cover |
+| `POST` | `api/forecast/` | promote one (`{date, period}`) into the image library, frozen |
 | `GET` | `api/bulletins/` | dashboard listing (templates and issues, metadata only) |
 | `POST` | `api/bulletins/` | create under a product page |
 | `GET` | `api/bulletins/<id>/` | read one, with its document (latest draft) |
@@ -197,6 +199,12 @@ validates the real file format, not the extension) and hands back a **rendition*
 a 4000px photo never reaches the page. The document keeps that url plus the image id; the
 library endpoint lets an editor reuse an image that is already on the site — the agency
 logo, typically.
+
+Forecast maps (meteorological sites only, with forecastmanager) are redrawn after each
+forecast pull, so a bulletin never points at them: `POST api/forecast/` copies the current
+map into the library, in a "Forecast maps" collection, and hands back its rendition like
+any image. Promoting the same map twice returns the same image; the library picker leaves
+that collection to searches.
 
 Maps come from geomanager's own layer catalogue (`api/datasets/`), no `DashboardMap`
 snippet to configure first. Picking a layer freezes its tile path, **its date** and its
