@@ -115,8 +115,9 @@ Dev-stack traps:
   `CLIMWEB_2FA_SUPERUSER_REQUIRED` to false.
 - ClimWeb dropped `HomePage.hero_type`/`show_banner_video`/… without a migration: the
   NOT NULL columns remain and any `HomePage` insert raises `IntegrityError`.
-  `dev-bootstrap.py` sets column defaults; `BulletinStoreTests.test_lifecycle` fails on
-  it until ClimWeb ships the migration — not a bulletin_studio regression.
+  `dev-bootstrap.py` sets column defaults; both `BulletinStoreTests` tests (their setUp
+  creates a HomePage) fail on it until ClimWeb ships the migration — not a bulletin_studio
+  regression.
 
 Frontend iteration: `npm run dev` in `../bulletin-studio-js` (port 5180, strictPort) plus
 `BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180` in `.env`. Otherwise `npm run build`
@@ -131,7 +132,18 @@ uv run --no-project --with shapely python -m unittest bulletin_studio.forecast.t
 ```
 
 The host renders with Inter when it is installed; ClimWeb's image only has DejaVu, so a
-design also needs checking in the container.
+design also needs checking in the container. From the database (published forecasts only),
+into `media/forecast_snapshots/<date>/<HHhMM>-<preset>.png` + `.svg`:
+
+```shell
+docker compose -f docker-compose.dev.yml exec climweb \
+  /climweb/web/src/climweb/manage.py render_forecast_snapshot --list   # today's periods
+docker compose -f docker-compose.dev.yml exec climweb \
+  /climweb/web/src/climweb/manage.py render_forecast_snapshot --date 2026-10-05 --period 06:00
+```
+
+A pull only returns hours to come: on a fresh database, today's early periods do not
+exist; once written by earlier pulls, a past period stays as it was last pulled.
 
 CSS trap: Tailwind 4 puts its utilities in `@layer utilities`, and any **unlayered** rule
 (wagtail's `core.css`) beats a layered one whatever the specificity. The app's
