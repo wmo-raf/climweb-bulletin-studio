@@ -52,6 +52,15 @@ boundary tiles and default bounds through `api/map-config/`. maplibre refuses re
 urls in its sources, so `src/map.ts` makes them absolute at mount time. The basemap is
 deliberately light (OSM) where ClimWeb's dashboards are dark: a bulletin gets printed.
 
+Forecast map (`bulletin_studio/forecast/`, in progress — plan in
+`../weather-forecast-snapshot/PLAN.md`): the second exception to "thin". A country map of
+forecastmanager's city forecasts, drawn on the server (SVG by hand, PNG through
+cairosvg) because it is composed without a browser, after each forecast pull. It is not a
+second layout engine: it draws one image, which the editor consumes like any other. The
+values are the national met office's, displayed as stored — never aggregated or
+recomputed. `forecast/render.py` is pure (no Django, no file paths); fixtures and the
+design-loop script live in `dev/forecast/`, outside the package, so they never ship.
+
 Gotchas worth knowing (mostly learned from the plugin, all still true):
 - `apps.ready()` must extend `ProductPage.subpage_types` — ClimWeb hardcodes it
 - `base_form_class = WagtailAdminPageForm`: the native `ProductItemPage` form reads
@@ -104,6 +113,17 @@ Dev-stack traps:
 Frontend iteration: `npm run dev` in `../bulletin-studio-js` (port 5180, strictPort) plus
 `BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180` in `.env`. Otherwise `npm run build`
 then `manage.py collectstatic --noinput`.
+
+Forecast map iteration, on the host, no stack (icons are read from `../forecastmanager`):
+
+```shell
+uv run dev/forecast/render.py --list                     # periods in the fixture
+uv run dev/forecast/render.py --all --period Journalière # -> dev/forecast/out/*.png + .svg
+uv run --no-project --with shapely python -m unittest bulletin_studio.forecast.tests
+```
+
+The host renders with Inter when it is installed; ClimWeb's image only has DejaVu, so a
+design also needs checking in the container.
 
 CSS trap: Tailwind 4 puts its utilities in `@layer utilities`, and any **unlayered** rule
 (wagtail's `core.css`) beats a layered one whatever the specificity. The app's

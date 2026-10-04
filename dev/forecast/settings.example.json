@@ -1,0 +1,9 @@
+{
+  "title_template": "Prévisions météo",
+  "source_text": "Source : ANAM Burkina Faso · icônes MET Norway",
+  "theme": "light",
+  "detail_level": 1,
+  "temp_unit": "°C",
+  "periods": ["Journalière", "15:00"],
+  "presets": ["web", "social"]
+}

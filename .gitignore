@@ -175,3 +175,6 @@ cython_debug/
 # bundle JS : lien symbolique vers ../bulletin-studio-js/dist en dev,
 # vendorisé par sync-frontend.sh au moment de la release
 /bulletin_studio/static/bulletin_studio/app
+
+# rendus de la boucle de design de la carte de prévision
+/dev/forecast/out/

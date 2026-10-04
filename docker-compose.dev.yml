@@ -47,6 +47,8 @@ services:
       - bulletin-redis
     volumes:
       - ./bulletin_studio:/app/bulletin_studio
+      # Fixtures of the forecast map tests (outside the package, so they never ship).
+      - ./dev:/app/dev:ro
       # static/bulletin_studio/app is a symlink to ../bulletin-studio-js/dist,
       # which resolves to /bulletin-studio-js/dist once inside the container.
       - ../bulletin-studio-js/dist:/bulletin-studio-js/dist:ro
