@@ -186,11 +186,15 @@ All under `/<admin path>/bulletin-studio/`, staff-only, CSRF-protected (send `X-
 | `POST` | `api/bulletins/` | create under a product page |
 | `GET` | `api/bulletins/<id>/` | read one, with its document (latest draft) |
 | `PUT` | `api/bulletins/<id>/` | save — a Wagtail draft revision |
+| `POST` | `api/bulletins/<id>/issues/` | a new issue of this template (`{date}`, today by default), made on the server |
 | `POST` | `api/bulletins/<id>/publish/` | publish the draft |
 | `DELETE` | `api/bulletins/<id>/` | delete |
 
 Saving never publishes: a live issue keeps serving its published html until someone hits
-publish. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
+publish. "New bulletin" asks the server for the issue: a draft dated for the day, titled
+"{template} — {date}" in the site's language, its forecast maps frozen. Its html is
+rendered by the studio when it is published — until then, neither the studio nor Wagtail's
+own publish actions will put it online. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
 Publishing and deleting clear ClimWeb's page cache, as Wagtail's own editor does: in
 production, ClimWeb caches public pages for hours.
 

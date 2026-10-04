@@ -250,10 +250,31 @@ def bulletin(request, pk):
 
 @require_admin_access
 @require_http_methods(["POST"])
+def new_issue(request, pk):
+    """A new issue of this template, made on the server: its forecast maps are frozen
+    for its date (`{date}` in the body, today by default) - see `issues`."""
+    from .issues import create_issue
+
+    template = get_object_or_404(BulletinPage, pk=pk, is_template=True)
+    try:
+        data = json.loads(request.body or b"{}")
+        day = date.fromisoformat(data["date"]) if data.get("date") else None
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError, AttributeError):
+        return JsonResponse({"error": "expected {date: YYYY-MM-DD} or nothing"}, status=400)
+    issue = create_issue(template, day, user=request.user)
+    return JsonResponse(_full(issue), status=201)
+
+
+@require_admin_access
+@require_http_methods(["POST"])
 def publish(request, pk):
     page = get_object_or_404(BulletinPage, pk=pk)
     if page.is_template:
         raise Http404
+    if not page.get_latest_revision_as_object().html.strip():
+        # an issue the server prepared, never rendered by the studio: nothing to show
+        return JsonResponse({"error": "nothing to publish: the bulletin has no content yet"},
+                            status=400)
     (page.get_latest_revision() or page.save_revision()).publish()
     _clear_site_cache()
     page.refresh_from_db()

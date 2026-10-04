@@ -10,5 +10,6 @@ urlpatterns = [
     path("api/bulletins/", views.bulletins, name="bulletins"),
     path("api/bulletins/<int:pk>/", views.bulletin, name="bulletin"),
     path("api/bulletins/<int:pk>/publish/", views.publish, name="publish"),
+    path("api/bulletins/<int:pk>/issues/", views.new_issue, name="new_issue"),
     path("", views.app, name="app"),
 ]

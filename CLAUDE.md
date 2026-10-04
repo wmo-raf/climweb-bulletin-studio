@@ -29,9 +29,17 @@ Predecessors, both worth reading before changing anything here:
 
 `BulletinPage(ProductItemPage)` under a `ProductPage`. `is_template=True` marks the
 starting point an editor duplicates; issues are its siblings, published as real product
-items. The template is a point of departure only — nothing stays linked afterwards.
+items. The template is a point of departure only: an issue records `source_template` (the
+daily draft needs to know whether today's exists), but nothing propagates either way.
 
-The Python side is deliberately thin: a menu entry, one model, one public template, seven
+Issues are made on the server (`issues.create_issue`, behind "New bulletin" and the daily
+draft): the template's `doc` copied, its forecast blocks frozen for the issue's date, the
+page `date` ("Effective from") set to it — the studio's "issue date" blocks display that
+field — and `html` left empty. Only the studio renders html; it does on every publish. The
+forecast block and how columns nest blocks are the only parts of the block schema Python
+knows.
+
+The Python side is deliberately thin: a menu entry, one model, one public template, eight
 JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app:
 
 - `doc` — the editor's JSON, stored opaquely (no Python mirror to keep in sync)
@@ -82,6 +90,9 @@ Gotchas worth knowing (mostly learned from the plugin, all still true):
 - `base_form_class = WagtailAdminPageForm`: the native `ProductItemPage` form reads
   `parent.product.product_item_types` and crashes without the `products` StreamField
 - set `live=False` *before* `add_child`, or Wagtail publishes the page
+- an issue made on the server has no html until the studio publishes it: the `publish`
+  endpoint, `before_publish_page` and `before_bulk_action` refuse to put it online (its
+  public page would be blank)
 - the slug follows the title only until the first publication, then freezes
 - Django's `{# #}` comment is single-line: a multi-line one leaks into the rendered page
 - ClimWeb caches public pages (wagtail-cache, 4 h in production, off in dev) and clears

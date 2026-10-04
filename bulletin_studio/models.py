@@ -42,6 +42,11 @@ class BulletinPage(ProductItemPage):
     doc = models.JSONField(default=dict, blank=True)
     html = models.TextField(blank=True, default="")
     is_template = models.BooleanField(default=False, verbose_name=_("Template"))
+    # The template an issue was made from, so the daily draft knows whether today's
+    # exists. Nothing else follows the link: editing a template changes no issue.
+    source_template = models.ForeignKey(
+        "self", null=True, blank=True, editable=False, on_delete=models.SET_NULL,
+        related_name="issues")
 
     class Meta:
         verbose_name = _("Bulletin")
