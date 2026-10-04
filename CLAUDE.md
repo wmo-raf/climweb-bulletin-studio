@@ -7,9 +7,10 @@ Bulletin Studio JS editor inside the ClimWeb admin and publishes what it compose
 ClimWeb's Products section.
 
 ClimWeb ships it like `climweb-dataset-helper`: pinned in `climweb/requirements/base.in`,
-listed in ClimWeb's `INSTALLED_APPS`. Until that ClimWeb change is released, sites (and
-this dev stack) add it through `CLIMWEB_ADDITIONAL_APPS`, and the two must never be
-combined: a duplicate app label stops Django at startup.
+listed in ClimWeb's `INSTALLED_APPS`. Until that ClimWeb change is released, sites add it
+through `CLIMWEB_ADDITIONAL_APPS`, and the two must never be combined: a duplicate app
+label stops Django at startup. `climweb_dev` (ClimWeb main) already lists it, so this dev
+stack no longer sets `CLIMWEB_ADDITIONAL_APPS`.
 
 **It depends on ClimWeb** (`climweb.pages.products`), like geomanager does: there is no
 bare-Wagtail mode, and no sandbox — development happens against the real ClimWeb image
@@ -87,9 +88,16 @@ cp .env.sample .env                                      # DB_PASSWORD
 docker compose -f docker-compose.dev.yml up -d --build   # http://localhost:8010/admin
 docker compose -f docker-compose.dev.yml exec -T climweb \
   /climweb/web/src/climweb/manage.py shell < dev-bootstrap.py   # admin/admin + page tree
+docker compose -f docker-compose.dev.yml exec -T climweb \
+  /climweb/web/src/climweb/manage.py shell < dev/forecast/bootstrap.py  # cities, BF boundaries, yr pull on
 docker compose -f docker-compose.dev.yml exec climweb \
   /climweb/web/src/climweb/manage.py test bulletin_studio
 ```
+
+The stack runs ClimWeb's Celery too: `beat` sends the hourly forecast pull
+(`download-forecast-every-hour`), `worker` runs it. Neither reloads code: restart `worker`
+after editing a task or a hook. To pull now, through the worker as beat would:
+`manage.py shell -c "from climweb.base.tasks import download_forecast; download_forecast.delay()"`.
 
 Needs `climweb_dev:latest` built from `../climweb` (the image only; ClimWeb's own compose
 stack on :8000 is independent). The database starts **empty** — `dev-bootstrap.py`

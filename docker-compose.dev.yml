@@ -6,9 +6,9 @@ x-climweb-variables: &climweb-variables
   REDIS_URL: redis://bulletin-redis:6379/0
   MIGRATE_ON_STARTUP: "true"
   ADMIN_URL_PATH: ${ADMIN_URL_PATH:-admin}
-  # Until ClimWeb lists bulletin_studio in INSTALLED_APPS itself. Drop this line once
-  # climweb_dev does, or Django refuses to start (app label registered twice).
-  CLIMWEB_ADDITIONAL_APPS: bulletin_studio
+  # No CLIMWEB_ADDITIONAL_APPS: climweb_dev (ClimWeb main) lists bulletin_studio in
+  # INSTALLED_APPS itself, and Django refuses to start with the label twice. The
+  # editable install of dev.Dockerfile replaces the pinned release.
   # ClimWeb forces 2FA on the admin (superusers included) by default; a dev
   # stack does without it.
   WAGTAIL_2FA_REQUIRED: "false"
@@ -56,6 +56,40 @@ services:
       - media:/climweb/web/src/climweb/media
     stdin_open: true
     tty: true
+
+  # Celery, as on a real ClimWeb: beat sends the hourly forecast pull, the worker runs
+  # it - and whatever the forecast map hooks onto it. Neither reloads on code changes:
+  # `docker compose -f docker-compose.dev.yml restart worker` after editing a task.
+  worker:
+    image: climweb-bulletin-studio_dev
+    command: celery-worker
+    env_file:
+      - .env
+    environment:
+      <<: *climweb-variables
+      # The web container runs the migrations; start once it is up.
+      WAIT_HOSTS: bulletin-db:5432,bulletin-redis:6379,climweb:8000
+      WAIT_TIMEOUT: 300
+      CLIMWEB_NUM_OF_CELERY_WORKERS: 2
+    depends_on:
+      - climweb
+    volumes:
+      - ./bulletin_studio:/app/bulletin_studio
+      - media:/climweb/web/src/climweb/media
+
+  beat:
+    image: climweb-bulletin-studio_dev
+    command: celery-beat
+    env_file:
+      - .env
+    environment:
+      <<: *climweb-variables
+      WAIT_HOSTS: bulletin-db:5432,bulletin-redis:6379,climweb:8000
+      WAIT_TIMEOUT: 300
+    depends_on:
+      - climweb
+    volumes:
+      - ./bulletin_studio:/app/bulletin_studio
 
 volumes:
   pgdata:
