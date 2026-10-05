@@ -63,3 +63,13 @@ if not ProductPage.objects.exists():
         product=product,
     ))
     print("ProductPage created")
+
+# ClimWeb's WDQMS statistics (run_wdqms_stats, 00:00 and 12:00) backfill months of data on
+# a fresh database: for hours, they hold both processes of the dev worker, and the
+# forecast pull and the daily drafts wait behind them. Beat keeps `enabled` when it
+# restarts, so switching them off holds. Nothing in the studio needs them.
+from django_celery_beat.models import PeriodicTask
+
+wdqms = PeriodicTask.objects.filter(task="climweb.base.tasks.run_wdqms_stats", enabled=True)
+if wdqms.exists():
+    print(f"WDQMS periodic tasks disabled: {wdqms.update(enabled=False)}")

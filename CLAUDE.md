@@ -145,6 +145,11 @@ The compose file also mounts `../bulletin-studio-js/dist` at `/bulletin-studio-j
 which is where the `static/bulletin_studio/app` symlink resolves inside the container.
 
 Dev-stack traps:
+- The worker has two processes, and ClimWeb's WDQMS statistics (`run_wdqms_stats`, at
+  00:00 and 12:00) backfill for hours on a fresh database: the forecast pull, the map
+  renders and the daily drafts queue behind them. `dev-bootstrap.py` disables those
+  periodic tasks; if a queue builds up anyway (`redis-cli LLEN celery` on
+  `bulletin-redis`), look at `celery inspect active` in the worker.
 - ClimWeb forces 2FA on the admin, superusers included: every admin url (the JSON API
   too) 302s to `/admin/2fa/devices/new`. The compose file sets `WAGTAIL_2FA_REQUIRED` and
   `CLIMWEB_2FA_SUPERUSER_REQUIRED` to false.
