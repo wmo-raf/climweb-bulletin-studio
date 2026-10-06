@@ -26,6 +26,7 @@ from wagtail.images import get_image_model
 from wagtail.images.forms import get_image_form
 from wagtailcache.cache import clear_cache
 
+from climweb.base.models import OrganisationSetting
 from climweb.pages.products.models import ProductPage
 
 from . import periods
@@ -39,6 +40,9 @@ MAX_BODY = 5 * 1024 * 1024  # a bulletin is text + image references, not a paylo
 IMAGE_RENDITION = "width-1200"
 IMAGE_THUMB = "fill-160x120"
 IMAGE_PAGE = 24
+# The organisation's logo and flag, at the head of the printed bulletin: some 15 mm
+# high at most, so 240 px keeps them sharp on paper (renditions never upscale).
+LETTERHEAD_RENDITION = "height-240"
 
 # Point this at a running `npm run dev` (e.g. http://localhost:5180) to serve the
 # frontend from Vite with HMR instead of the bundle vendored under static/.
@@ -70,11 +74,37 @@ def app(request):
         "dev_server": DEV_SERVER,
         # the site's: the drafts are prepared on it, whatever the admin user's own zone
         "time_zone": settings.TIME_ZONE,
+        "letterhead": _letterhead(request),
         # no forecastmanager, no forecast blocks: the app leaves them out of its palette
         **({"forecast_url": reverse("bulletin_studio:forecast"),
             "forecast_cities_url": reverse("bulletin_studio:forecast_cities")}
            if apps.is_installed("forecastmanager") else {}),
     })
+
+
+def _letterhead(request):
+    """The identity ClimWeb's navbar shows, from Settings > Organisation: logo, flag
+    and the text beside them. The studio prints it above the bulletin but keeps it
+    out of the document: the public page has the navbar already, and a change in
+    the settings reaches every PDF printed after it."""
+    try:
+        organisation = OrganisationSetting.for_request(request)
+    except Exception:  # no Site for this host: a plain PDF, but the studio opens
+        return {}
+    return {
+        "logo": _letterhead_image(organisation.logo),
+        "flag": _letterhead_image(organisation.country_flag),
+        # the navbar's text beside the logo, else the organisation's name
+        "text": organisation.logo_append or organisation.name,
+    }
+
+
+def _letterhead_image(image):
+    # a file gone from disk must not keep the studio from opening
+    try:
+        return image.get_rendition(LETTERHEAD_RENDITION).url if image else None
+    except Exception:
+        return None
 
 
 def _ms(dt):

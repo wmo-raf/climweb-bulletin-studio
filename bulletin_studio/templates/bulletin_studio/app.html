@@ -17,6 +17,27 @@
             height: 100%;
             padding: 0 !important;
         }
+        /* The studio's PDF button prints this page: the app hides its own chrome,
+           the Wagtail shell around it is ours to hide (its fixed sidebar would
+           cover the bulletin) and to unclip (one screen high, overflow hidden: a
+           bulletin longer than a page would print its first page only). */
+        @media print {
+            .bulletin-studio #wagtail-sidebar,
+            .bulletin-studio .messages {
+                display: none !important;
+            }
+            body.bulletin-studio,
+            .bulletin-studio .wrapper,
+            .bulletin-studio .content-wrapper,
+            .bulletin-studio .content-wrapper .content,
+            #bulletin-studio-app {
+                height: auto !important;
+                overflow: visible !important;
+            }
+            .bulletin-studio .content-wrapper {
+                border: 0;
+            }
+        }
     </style>
 {% endblock %}
 
@@ -31,6 +52,10 @@
          {% if forecast_url %}data-forecast-url="{{ forecast_url }}"{% endif %}
          {% if forecast_cities_url %}data-forecast-cities-url="{{ forecast_cities_url }}"{% endif %}
          data-time-zone="{{ time_zone }}"
+         {# Settings > Organisation: printed above the bulletin #}
+         {% if letterhead.logo %}data-letterhead-logo="{{ letterhead.logo }}"{% endif %}
+         {% if letterhead.flag %}data-letterhead-flag="{{ letterhead.flag }}"{% endif %}
+         {% if letterhead.text %}data-letterhead-text="{{ letterhead.text }}"{% endif %}
          {# the admin user's active language: the app translates itself with it #}
          data-locale="{{ LANGUAGE_CODE }}"
          data-csrf-token="{{ csrf_token }}">

@@ -9,8 +9,10 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
+from wagtail.images import get_image_model
 from wagtail.models import Page, Site
 
+from climweb.base.models import OrganisationSetting
 from climweb.base.models.snippets import Product, ServiceCategory
 from climweb.pages.home.models import HomePage
 from climweb.pages.products.models import ProductIndexPage, ProductPage
@@ -139,3 +141,31 @@ class ImageStoreTests(TestCase):
             "file": SimpleUploadedFile("x.png", b"not a png", content_type="image/png"),
         })
         self.assertEqual(refused.status_code, 400)
+
+
+class LetterheadTests(TestCase):
+    def setUp(self):
+        self.client.force_login(
+            get_user_model().objects.create_superuser("admin", "a@example.com", "pw"))
+
+    def test_the_organisation_identity_reaches_the_studio(self):
+        url = reverse("bulletin_studio:app")
+        self.assertNotContains(self.client.get(url), "data-letterhead")
+
+        organisation = OrganisationSetting.for_site(Site.objects.get(is_default_site=True))
+        organisation.logo, organisation.country_flag = (
+            get_image_model().objects.create(
+                title=name, file=SimpleUploadedFile(f"{name}.png", PNG, content_type="image/png"))
+            for name in ("logo", "flag"))
+        organisation.name = "Météo Test"
+        organisation.save()
+        page = self.client.get(url).content.decode()
+        # renditions, as for the bulletin's own images
+        self.assertRegex(page, r'data-letterhead-logo="/media/images/logo[^"]*\.height-240\.png"')
+        self.assertRegex(page, r'data-letterhead-flag="/media/images/flag[^"]*\.height-240\.png"')
+        self.assertIn('data-letterhead-text="Météo Test"', page)
+
+        # the navbar's text beside the logo comes first
+        organisation.logo_append = "Agence nationale de la météorologie"
+        organisation.save()
+        self.assertContains(self.client.get(url), 'data-letterhead-text="Agence nationale de la météorologie"')

@@ -78,6 +78,12 @@ JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app
 - `doc` — the editor's JSON, stored opaquely (no Python mirror to keep in sync)
 - `html` — what the editor rendered from it, and the **only** thing the public page serves
 
+The PDF is the browser printing the studio. Above the bulletin it prints the identity
+ClimWeb's navbar shows, from Settings > Organisation (`views._letterhead`): logo,
+`logo_append` text (else the organisation's name) and country flag, and so does the
+"PDF" preview. Never in `doc` or `html`: the public page has the navbar already, and a
+change in the settings reaches every PDF printed after it.
+
 The one exception to "thin" is images: they go through `api/images/` into the Wagtail
 library rather than living as dataURLs in `doc`, and come back as renditions
 (`width-1200`). Renditions are files on disk, so their urls survive in the html snapshot —
