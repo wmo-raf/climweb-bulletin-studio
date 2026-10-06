@@ -30,23 +30,41 @@ Predecessors, both worth reading before changing anything here:
 `BulletinPage(ProductItemPage)` under a `ProductPage`. `is_template=True` marks the
 starting point an editor duplicates; issues are its siblings, published as real product
 items. The template is a point of departure only: an issue records `source_template` (the
-daily draft needs to know whether today's exists), but nothing propagates either way.
+draft task needs to know whether the period's exists), but nothing propagates either way.
 
-Issues are made on the server (`issues.create_issue`, behind "New bulletin" and the daily
-draft): the template's `doc` copied, its forecast blocks frozen for the issue's date, the
-page `date` ("Effective from") set to it — the studio's "issue date" blocks display that
-field — and `html` left empty. Only the studio renders html; it does on every publish. The
-forecast block and how columns nest blocks are the only parts of the block schema Python
-knows.
+A template's `cadence` (daily, dekadal, monthly — `periods.py`, pure) sets the period each
+issue covers: the one that begins, so the dekadal of the 11th is the outlook of the 11th to
+the 20th. No "previous period" mode and no weekly cadence: not needed yet.
 
-The daily draft: a template's `daily_draft_at` (set in the studio, site time, floored to
-the quarter hour) makes the beat task `create_daily_drafts` (`bulletin-studio-daily-drafts`,
-every 15 minutes, registered on ClimWeb's app through `settings.CELERY_APP`) prepare its
-issue of the day once that time has passed. Once a day per template: `last_daily_draft`
-keeps a draft deleted by hand from coming back, and an issue of the day made by hand
-counts. A human always publishes.
+Issues are made on the server (`issues.create_issue`, behind "New bulletin" and the draft
+task) for the period containing a day: the template's `doc` copied, its forecast and city
+forecast blocks frozen from the period's first day (`dayOffset` counts from it), the page
+`date` ("Effective from") and `valid_until` ("Effective until", None for a single day) set
+to the period, `cadence` copied, and `html` left empty. The title is "{template} —
+{period}" from Django's own date formats (a range repeats month and year: "1–10 octobre"
+would need rules per language). Only the studio renders html; it does on every publish.
+The data of these two blocks and how columns nest blocks are the only parts of the block
+schema Python knows.
 
-The Python side is deliberately thin: a menu entry, one model, one public template, eight
+Dates follow the **admin's** language, not the site's: the title in the views through
+Wagtail's `require_admin_access` (the user's preferred language), in the draft task the
+preferred language of whoever last saved the template (`author_language`, from the latest
+revision's user — hence `save_revision(user=request.user)`). The studio formats its own
+dates in the admin's language too: the "issue date" blocks, and the banner's inserted
+dates (`{start}`, `{end}`, `{period}`, `{published}` in the eyebrow, title, subtitle and
+badges), which the document keeps as fields and the JS fills at display and render time —
+Python never reads them.
+
+The drafts: a template's `draft_at` (set in the studio, site time, floored to the quarter
+hour) makes the beat task `create_daily_drafts` (`bulletin-studio-daily-drafts`, every 15
+minutes, registered on ClimWeb's app through `settings.CELERY_APP`; "daily" in both names
+predates the other cadences and stays, beat's DatabaseScheduler keeps renamed rows) prepare
+the issue of the current period once that time has passed on its first day — or later in
+the period, if the worker was stuck, but never a period gone by. Once a period per
+template: `last_draft` keeps a draft deleted by hand from coming back, and an issue of the
+period made by hand counts. A human always publishes.
+
+The Python side is deliberately thin: a menu entry, one model, one public template, nine
 JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app:
 
 - `doc` — the editor's JSON, stored opaquely (no Python mirror to keep in sync)
@@ -92,6 +110,18 @@ stores as `file_hash`, so there is no model of our own. `api/forecast/` lists th
 drawn (GET) and promotes one (POST); `data-forecast-url` reaches the JS only when
 forecastmanager is installed.
 
+City forecasts (the `cities` block): the same forecast as a grid of cities — icon,
+max/min, wind arrow, compass point and speed — laid out by the JS as HTML, not drawn by
+the server. `forecast/cities.py` reads the slot as stored (`forecast_collection`, the
+map's query) and `api/forecast/cities/?date=&period=` serves it; an issue copies the rows
+of **every** city into its `doc` (`version`: sha1 of the values, for "Update"), and the
+choice and order of cities (`cities`, slugs, null = all) apply when the studio renders,
+so Python never filters. Icons are referenced by their unhashed static path
+(`/static/forecastmanager/weathericons/<symbol>.svg`): a hashed name would change with
+the icon under a published bulletin. Values are rounded for display, never converted:
+the wind stays in the office's unit. The arrow is a CSS shape turned by an inline
+`style` — the only way to orient something in sanitized html (no svg, no script).
+
 Gotchas worth knowing (mostly learned from the plugin, all still true):
 - `apps.ready()` must extend `ProductPage.subpage_types` — ClimWeb hardcodes it
 - `base_form_class = WagtailAdminPageForm`: the native `ProductItemPage` form reads
@@ -132,7 +162,7 @@ The stack runs ClimWeb's Celery too: `beat` sends the hourly forecast pull
 after editing a task or a hook, and `beat` after adding a periodic one. To pull now,
 through the worker as beat would:
 `manage.py shell -c "from climweb.base.tasks import download_forecast; download_forecast.delay()"`.
-The daily drafts likewise: `from bulletin_studio.tasks import create_daily_drafts; create_daily_drafts.delay()`.
+The drafts likewise: `from bulletin_studio.tasks import create_daily_drafts; create_daily_drafts.delay()`.
 
 Needs `climweb_dev:latest` built from `../climweb` (the image only; ClimWeb's own compose
 stack on :8000 is independent). The database starts **empty** — `dev-bootstrap.py`
@@ -147,7 +177,7 @@ which is where the `static/bulletin_studio/app` symlink resolves inside the cont
 Dev-stack traps:
 - The worker has two processes, and ClimWeb's WDQMS statistics (`run_wdqms_stats`, at
   00:00 and 12:00) backfill for hours on a fresh database: the forecast pull, the map
-  renders and the daily drafts queue behind them. `dev-bootstrap.py` disables those
+  renders and the drafts queue behind them. `dev-bootstrap.py` disables those
   periodic tasks; if a queue builds up anyway (`redis-cli LLEN celery` on
   `bulletin-redis`), look at `celery inspect active` in the worker.
 - ClimWeb forces 2FA on the admin, superusers included: every admin url (the JSON API

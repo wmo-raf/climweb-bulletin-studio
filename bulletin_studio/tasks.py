@@ -19,11 +19,13 @@ def render_daily_forecast_maps():
     return render_daily()
 
 
+# "daily": the name predates the dekadal and monthly cadences, and stays - beat's
+# DatabaseScheduler keeps the rows of renamed tasks. It prepares the drafts of all three.
 @shared_task(base=Singleton, lock_expiry=600, name="bulletin_studio.create_daily_drafts")
 def create_daily_drafts():
-    from .issues import create_daily_drafts as create
+    from .issues import create_drafts
 
-    return [issue.pk for issue in create()]
+    return [issue.pk for issue in create_drafts()]
 
 
 def _celery_app():
@@ -37,7 +39,7 @@ def _celery_app():
 
 app = _celery_app()
 if app is None:
-    logger.warning("No CELERY_APP setting: daily drafts are not scheduled.")
+    logger.warning("No CELERY_APP setting: the drafts are not scheduled.")
 else:
     @app.on_after_finalize.connect
     def schedule_daily_drafts(sender, **kwargs):

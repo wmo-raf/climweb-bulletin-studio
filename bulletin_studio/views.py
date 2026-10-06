@@ -28,6 +28,7 @@ from wagtailcache.cache import clear_cache
 
 from climweb.pages.products.models import ProductPage
 
+from . import periods
 from .forecast import MAPS_COLLECTION
 from .models import BulletinPage
 
@@ -67,10 +68,12 @@ ALLOWED_ATTRS = {
 def app(request):
     return render(request, "bulletin_studio/app.html", {
         "dev_server": DEV_SERVER,
-        # the site's: the daily draft runs on it, whatever the admin user's own zone
+        # the site's: the drafts are prepared on it, whatever the admin user's own zone
         "time_zone": settings.TIME_ZONE,
-        # no forecastmanager, no forecast block: the app leaves it out of its palette
-        "forecast_url": reverse("bulletin_studio:forecast") if apps.is_installed("forecastmanager") else None,
+        # no forecastmanager, no forecast blocks: the app leaves them out of its palette
+        **({"forecast_url": reverse("bulletin_studio:forecast"),
+            "forecast_cities_url": reverse("bulletin_studio:forecast_cities")}
+           if apps.is_installed("forecastmanager") else {}),
     })
 
 
@@ -94,9 +97,12 @@ def _meta(page, parent=None):
         "id": page.pk,
         "title": page.title,
         "isTemplate": page.is_template,
-        # what the issue is about: its forecast maps and "issue date" blocks follow it
+        # the period the issue covers: its forecast maps, "issue date" blocks and date
+        # fields follow it. No `validUntil` for a single day.
         "date": _day(page.date),
-        "dailyDraftAt": f"{page.daily_draft_at:%H:%M}" if page.daily_draft_at else None,
+        "validUntil": _day(page.valid_until),
+        "cadence": page.cadence,
+        "draftAt": f"{page.draft_at:%H:%M}" if page.draft_at else None,
         "parent": parent.pk,
         "parentTitle": parent.title,
         "blockCount": page.block_count,
@@ -134,20 +140,24 @@ def _read_body(request):
     if not isinstance(html, str):
         raise ValueError("html must be a string")
 
-    body = {}
-    if "dailyDraftAt" in data:  # absent: left as it is
-        daily = data["dailyDraftAt"]
+    body = {}  # a template's settings; absent: left as they are
+    if "cadence" in data:
+        if data["cadence"] not in periods.CADENCES:
+            raise ValueError(f"cadence must be one of {', '.join(periods.CADENCES)}")
+        body["cadence"] = data["cadence"]
+    if "draftAt" in data:
+        draft_at = data["draftAt"]
         try:
-            daily = time.fromisoformat(daily) if daily else None
+            draft_at = time.fromisoformat(draft_at) if draft_at else None
         except (TypeError, ValueError) as exc:
-            raise ValueError("dailyDraftAt must be HH:MM or empty") from exc
+            raise ValueError("draftAt must be HH:MM or empty") from exc
         # The drafts are prepared every quarter of an hour: a time in between would
         # wait for the next run, and one after 23:45 would never come.
-        body["daily_draft_at"] = daily and daily.replace(minute=daily.minute - daily.minute % 15,
+        body["draft_at"] = draft_at and draft_at.replace(minute=draft_at.minute - draft_at.minute % 15,
                                                          second=0, microsecond=0)
 
     return {
-        **body,
+        "settings": body,
         "title": title,
         "doc": doc,
         "html": nh3.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS,
@@ -227,10 +237,11 @@ def bulletins(request):
         page = BulletinPage(doc=body["doc"], html=body["html"],
                             is_template=body["is_template"], live=False)
         if page.is_template:
-            page.daily_draft_at = body.get("daily_draft_at")
+            for field, value in body["settings"].items():
+                setattr(page, field, value)
         page.apply_title(body["title"], parent=parent)
         parent.add_child(instance=page)
-        page.save_revision()
+        page.save_revision(user=request.user)
         return JsonResponse(_full(page, parent), status=201)
 
     pages = BulletinPage.objects.all().order_by("-latest_revision_created_at")
@@ -256,15 +267,17 @@ def bulletin(request, pk):
             return JsonResponse({"error": str(exc)}, status=400)
         page.doc, page.html = body["doc"], body["html"]
         page.apply_title(body["title"])
-        if page.is_template and "daily_draft_at" in body:
-            page.daily_draft_at = body["daily_draft_at"]
+        if page.is_template:
+            for field, value in body["settings"].items():
+                setattr(page, field, value)
         # A page that was never published has no public version to protect, so the
         # row follows the draft and the dashboard stays in sync. Once live, only
         # the revision moves until someone publishes. A template has no public
-        # version at all, and the daily draft reads its row.
+        # version at all, and the draft task reads its row - and the language of
+        # whoever saved it last, for the issues' titles.
         if not page.live or page.is_template:
             page.save()
-        page.save_revision()
+        page.save_revision(user=request.user)
         return JsonResponse(_full(page))
 
     # The editor opens the draft, not the published version.
@@ -274,8 +287,9 @@ def bulletin(request, pk):
 @require_admin_access
 @require_http_methods(["POST"])
 def new_issue(request, pk):
-    """A new issue of this template, made on the server: its forecast maps are frozen
-    for its date (`{date}` in the body, today by default) - see `issues`."""
+    """A new issue of this template, made on the server: the one of the period that
+    contains `{date}` (from the body, today by default), its forecast maps frozen, its
+    title in the admin's language - see `issues`."""
     from .issues import create_issue
 
     template = get_object_or_404(BulletinPage, pk=pk, is_template=True)
@@ -386,3 +400,21 @@ def forecast(request):
         return JsonResponse({"error": "no forecast map for this date and period"}, status=404)
     image, details = promoted
     return JsonResponse({**_image(image), **details})
+
+
+@require_admin_access
+@require_http_methods(["GET"])
+def forecast_cities(request):
+    """The city forecasts of one date and period, for the city forecast block: the rows
+    an issue freezes (`table`, null while nothing is published for that slot), and
+    every city, for the block's choice of cities. Only on a meteorological ClimWeb."""
+    if not apps.is_installed("forecastmanager"):
+        raise Http404
+    from .forecast import cities
+
+    try:
+        day = date.fromisoformat(request.GET["date"])
+        period = time.fromisoformat(request.GET["period"])
+    except (KeyError, ValueError):
+        return JsonResponse({"error": "expected ?date=YYYY-MM-DD&period=HH:MM"}, status=400)
+    return JsonResponse({"cities": cities.all_cities(), "table": cities.table(day, period)})

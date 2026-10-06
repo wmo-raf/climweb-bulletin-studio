@@ -29,6 +29,7 @@
          data-images-url="{% url 'bulletin_studio:images' %}"
          data-map-config-url="{% url 'bulletin_studio:map_config' %}"
          {% if forecast_url %}data-forecast-url="{{ forecast_url }}"{% endif %}
+         {% if forecast_cities_url %}data-forecast-cities-url="{{ forecast_cities_url }}"{% endif %}
          data-time-zone="{{ time_zone }}"
          {# the admin user's active language: the app translates itself with it #}
          data-locale="{{ LANGUAGE_CODE }}"

@@ -1,5 +1,6 @@
-"""An issue made on the server from a template: a dated draft, its forecast maps
-frozen, kept offline until the studio has rendered it."""
+"""An issue made on the server from a template: a draft of one period of the
+template's cadence, its forecast maps frozen, kept offline until the studio has
+rendered it."""
 import hashlib
 import json
 import tempfile
@@ -14,14 +15,15 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
-from django.utils import timezone, translation
+from django.utils import timezone
 from wagtail import hooks
 from wagtail.models import Page, Site
+from wagtail.users.models import UserProfile
 
 from climweb.base.models.snippets import Product, ServiceCategory
 from climweb.pages.products.models import ProductIndexPage, ProductPage
 
-from .issues import create_daily_drafts, issue_title
+from .issues import create_drafts, issue_title
 from .models import BulletinPage
 
 DAY = date(2026, 10, 5)
@@ -41,7 +43,8 @@ class IssueTestCase(TestCase):
             introduction_title="Daily", introduction_text="<p>Daily</p>")
         index.add_child(instance=product)
 
-        self.client.force_login(get_user_model().objects.create_superuser("admin", "a@example.com", "pw"))
+        self.admin = get_user_model().objects.create_superuser("admin", "a@example.com", "pw")
+        self.client.force_login(self.admin)
         self.template = self.post(reverse("bulletin_studio:bulletins"), {
             "title": "Daily weather", "doc": {"blocks": self.blocks}, "html": "", "isTemplate": True,
             "parent": product.pk}).json()
@@ -61,8 +64,9 @@ class IssueTests(IssueTestCase):
         response = self.new_issue({"date": "2026-10-05"})
         self.assertEqual(response.status_code, 201)
         issue = response.json()
-        self.assertEqual((issue["isTemplate"], issue["live"], issue["date"]), (False, False, "2026-10-05"))
-        self.assertEqual(issue["title"], issue_title(BulletinPage.objects.get(pk=self.template["id"]), DAY))
+        self.assertEqual((issue["isTemplate"], issue["live"], issue["date"], issue["validUntil"]),
+                         (False, False, "2026-10-05", None))
+        self.assertEqual(issue["title"], issue_title("Daily weather", "daily", DAY))
         self.assertEqual(issue["parent"], self.template["parent"])
         self.assertEqual(issue["doc"]["blocks"], self.blocks, "the date block shows the page's date itself")
 
@@ -76,11 +80,27 @@ class IssueTests(IssueTestCase):
         self.assertEqual(self.new_issue(template=issue["id"]).status_code, 404, "an issue is no template")
         self.assertEqual(self.new_issue({"date": "05/10/2026"}).status_code, 400)
 
-    def test_title_in_the_site_language_whoever_clicks(self):
+    def test_title_in_the_admin_language(self):
+        # an English site, an admin working in French (ClimWeb capitalises French months)
+        profile = UserProfile.get_for_user(self.admin)
+        profile.preferred_language = "fr"
+        profile.save()
+        with override_settings(LANGUAGE_CODE="en"):
+            self.assertRegex(self.new_issue({"date": "2026-10-05"}).json()["title"],
+                             r"^Daily weather — 5 [oO]ctobre 2026$")
+
+    def test_the_issue_covers_a_period_of_the_cadence(self):
         template = BulletinPage.objects.get(pk=self.template["id"])
-        # a French site, an admin working in English (ClimWeb capitalises French months)
-        with override_settings(LANGUAGE_CODE="fr"), translation.override("en"):
-            self.assertRegex(issue_title(template, DAY), r"^Daily weather — 5 [oO]ctobre 2026$")
+        for cadence, day, period, title in [
+            ("dekadal", "2026-10-14", ("2026-10-11", "2026-10-20"), "Oct. 11, 2026 – Oct. 20, 2026"),
+            ("dekadal", "2026-02-25", ("2026-02-21", "2026-02-28"), "Feb. 21, 2026 – Feb. 28, 2026"),
+            ("monthly", "2026-10-14", ("2026-10-01", "2026-10-31"), "October 2026"),
+        ]:
+            BulletinPage.objects.filter(pk=template.pk).update(cadence=cadence)
+            with override_settings(LANGUAGE_CODE="en"):
+                issue = self.new_issue({"date": day}).json()
+            self.assertEqual((issue["date"], issue["validUntil"]), period)
+            self.assertEqual(issue["title"], f"Daily weather — {title}")
 
     def test_an_unrendered_issue_stays_offline(self):
         issue = self.new_issue({"date": "2026-10-05"}).json()
@@ -108,46 +128,72 @@ class IssueTests(IssueTestCase):
         self.assertTrue(BulletinPage.objects.get(pk=issue["id"]).live)
 
 
-class DailyDraftTests(IssueTestCase):
+class DraftTests(IssueTestCase):
     def put(self, pk, **extra):
         page = self.client.get(reverse("bulletin_studio:bulletin", args=[pk])).json()
         return self.client.put(reverse("bulletin_studio:bulletin", args=[pk]), json.dumps({
             "title": page["title"], "doc": page["doc"], "html": "", "isTemplate": page["isTemplate"],
             **extra}), content_type="application/json")
 
-    def test_a_template_sets_its_time_by_the_quarter_hour(self):
+    def test_a_template_sets_its_cadence_and_its_time_by_the_quarter_hour(self):
         pk = self.template["id"]
-        self.assertIsNone(self.template["dailyDraftAt"])
-        self.assertEqual(self.put(pk, dailyDraftAt="06:10").json()["dailyDraftAt"], "06:00")
-        self.assertEqual(BulletinPage.objects.get(pk=pk).daily_draft_at, time(6))
-        self.assertEqual(self.put(pk).json()["dailyDraftAt"], "06:00", "absent: unchanged")
-        self.assertIsNone(self.put(pk, dailyDraftAt="").json()["dailyDraftAt"])
-        self.assertEqual(self.put(pk, dailyDraftAt="25:00").status_code, 400)
+        self.assertEqual((self.template["cadence"], self.template["draftAt"]), ("daily", None))
+        self.assertEqual(self.put(pk, draftAt="06:10").json()["draftAt"], "06:00")
+        self.assertEqual(BulletinPage.objects.get(pk=pk).draft_at, time(6))
+        self.assertEqual(self.put(pk, cadence="dekadal").json()["draftAt"], "06:00", "absent: unchanged")
+        self.assertEqual(BulletinPage.objects.get(pk=pk).cadence, "dekadal")
+        self.assertIsNone(self.put(pk, draftAt="").json()["draftAt"])
+        self.assertEqual(self.put(pk, draftAt="25:00").status_code, 400)
+        self.assertEqual(self.put(pk, cadence="weekly").status_code, 400)
 
         issue = self.new_issue().json()
-        self.assertIsNone(self.put(issue["id"], dailyDraftAt="06:00").json()["dailyDraftAt"],
-                          "only templates prepare drafts")
+        self.assertEqual(issue["cadence"], "dekadal", "the template's")
+        self.assertEqual(self.put(issue["id"], draftAt="06:00", cadence="monthly").json()["cadence"], "dekadal",
+                         "only templates have settings")
 
     def test_one_draft_a_day_once_its_time_has_come(self):
         at = lambda d, h, m=0: timezone.make_aware(datetime(2026, 10, d, h, m))  # noqa: E731
-        BulletinPage.objects.filter(pk=self.template["id"]).update(daily_draft_at=time(6))
+        BulletinPage.objects.filter(pk=self.template["id"]).update(draft_at=time(6))
 
-        self.assertEqual(create_daily_drafts(at(5, 5, 59)), [])
-        [draft] = create_daily_drafts(at(5, 6))
-        self.assertEqual((draft.date, draft.source_template_id, draft.live, draft.html),
-                         (DAY, self.template["id"], False, ""))
-        self.assertEqual(create_daily_drafts(at(5, 6, 15)), [], "once a day")
+        self.assertEqual(create_drafts(at(5, 5, 59)), [])
+        [draft] = create_drafts(at(5, 6))
+        self.assertEqual((draft.date, draft.valid_until, draft.source_template_id, draft.live, draft.html),
+                         (DAY, None, self.template["id"], False, ""))
+        self.assertEqual(create_drafts(at(5, 6, 15)), [], "once a day")
         draft.delete()
-        self.assertEqual(create_daily_drafts(at(5, 6, 30)), [], "a draft deleted by hand stays deleted")
+        self.assertEqual(create_drafts(at(5, 6, 30)), [], "a draft deleted by hand stays deleted")
 
-        [tomorrow] = create_daily_drafts(at(6, 6))
+        [tomorrow] = create_drafts(at(6, 6))
         self.assertEqual(tomorrow.date, date(2026, 10, 6))
 
         # an issue of the day made by hand beforehand: no second one
-        BulletinPage.objects.filter(pk=self.template["id"]).update(daily_draft_at=time(7))
+        BulletinPage.objects.filter(pk=self.template["id"]).update(draft_at=time(7))
         self.new_issue({"date": "2026-10-07"})
-        self.assertEqual(create_daily_drafts(at(7, 7)), [])
+        self.assertEqual(create_drafts(at(7, 7)), [])
         self.assertEqual(BulletinPage.objects.filter(source_template_id=self.template["id"]).count(), 2)
+
+    def test_a_dekad_on_the_1st_the_11th_and_the_21st(self):
+        at = lambda m, d, h: timezone.make_aware(datetime(2026, m, d, h))  # noqa: E731
+        BulletinPage.objects.filter(pk=self.template["id"]).update(cadence="dekadal", draft_at=time(8))
+
+        self.assertEqual(create_drafts(at(10, 11, 7)), [])
+        [draft] = create_drafts(at(10, 11, 8))
+        self.assertEqual((draft.date, draft.valid_until), (date(2026, 10, 11), date(2026, 10, 20)))
+        self.assertEqual(create_drafts(at(10, 15, 8)), [], "once a dekad")
+        # the worker was down on the 21st: the next morning still gets its dekad
+        [late] = create_drafts(at(10, 22, 3))
+        self.assertEqual((late.date, late.valid_until), (date(2026, 10, 21), date(2026, 10, 31)))
+        self.assertEqual(create_drafts(at(11, 1, 7)), [])
+        self.assertEqual(create_drafts(at(11, 1, 8))[0].date, date(2026, 11, 1))
+
+    def test_a_draft_in_the_language_of_the_template_author(self):
+        profile = UserProfile.get_for_user(self.admin)
+        profile.preferred_language = "fr"
+        profile.save()
+        BulletinPage.objects.filter(pk=self.template["id"]).update(cadence="monthly", draft_at=time(8))
+        with override_settings(LANGUAGE_CODE="en"):
+            [draft] = create_drafts(timezone.make_aware(datetime(2026, 10, 1, 8)))
+        self.assertRegex(draft.title, r"^Daily weather — [oO]ctobre 2026$")
 
 
 @skipUnless(apps.is_installed("forecastmanager"), "forecastmanager is not installed")
@@ -204,3 +250,38 @@ class ForecastIssueTests(IssueTestCase):
 
         template = BulletinPage.objects.get(pk=self.template["id"])
         self.assertEqual(template.doc["blocks"][3]["src"], "/media/stale.png", "the template is untouched")
+
+
+@skipUnless(apps.is_installed("forecastmanager"), "forecastmanager is not installed")
+class CityForecastIssueTests(IssueTestCase):
+    def cities(self, **recipe):
+        return {"id": "g", "type": "cities", "period": "06:00", "dayOffset": 0,
+                "cities": ["ouagadougou"], "columns": 2, "date": None, "periodLabel": "",
+                "units": None, "rows": None, "version": None, **recipe}
+
+    def setUp(self):
+        from .forecast.test_cities import publish_city_forecasts
+
+        publish_city_forecasts()
+        self.blocks = [
+            {"id": "c", "type": "columns", "ratios": [1], "columns": [[self.cities()]]},
+            self.cities(dayOffset=1, period=None),  # nothing published for the 6th yet
+            self.cities(rows=[{"slug": "ouagadougou", "name": "Ouagadougou"}], version="old"),
+        ]
+        super().setUp()
+
+    def test_the_issue_freezes_the_forecast_of_its_date(self):
+        from .forecast.cities import table
+
+        blocks = self.new_issue({"date": "2026-10-05"}).json()["doc"]["blocks"]
+        in_column, next_day, stale = blocks[0]["columns"][0][0], blocks[1], blocks[2]
+
+        expected = table(DAY, time(6))
+        self.assertEqual((in_column["date"], in_column["periodLabel"], in_column["version"]),
+                         ("2026-10-05", "Journalière", expected["version"]))
+        self.assertEqual(in_column["rows"], expected["rows"], "every city's row: the studio picks")
+        self.assertEqual(in_column["cities"], ["ouagadougou"], "the template's choice, untouched")
+        self.assertEqual(stale["rows"], expected["rows"], "never what the template carried")
+
+        self.assertIsNone(next_day["rows"])
+        self.assertEqual(next_day["period"], "06:00", "the office's first period, made explicit")

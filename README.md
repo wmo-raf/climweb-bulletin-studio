@@ -182,24 +182,33 @@ All under `/<admin path>/bulletin-studio/`, staff-only, CSRF-protected (send `X-
 | `POST` | `api/images/` | upload an image into that library |
 | `GET` | `api/forecast/` | the forecast maps drawn from `?date=` (today by default), and the periods they cover |
 | `POST` | `api/forecast/` | promote one (`{date, period}`) into the image library, frozen |
+| `GET` | `api/forecast/cities/` | the published forecast of `?date=&period=` city by city, and every city |
 | `GET` | `api/bulletins/` | dashboard listing (templates and issues, metadata only) |
 | `POST` | `api/bulletins/` | create under a product page |
 | `GET` | `api/bulletins/<id>/` | read one, with its document (latest draft) |
 | `PUT` | `api/bulletins/<id>/` | save — a Wagtail draft revision |
-| `POST` | `api/bulletins/<id>/issues/` | a new issue of this template (`{date}`, today by default), made on the server |
+| `POST` | `api/bulletins/<id>/issues/` | a new issue of this template, the one of the period containing `{date}` (today by default), made on the server |
 | `POST` | `api/bulletins/<id>/publish/` | publish the draft |
 | `DELETE` | `api/bulletins/<id>/` | delete |
 
 Saving never publishes: a live issue keeps serving its published html until someone hits
-publish. "New bulletin" asks the server for the issue: a draft dated for the day, titled
-"{template} — {date}" in the site's language, its forecast maps frozen. Its html is
-rendered by the studio when it is published — until then, neither the studio nor Wagtail's
-own publish actions will put it online.
+publish. A template sets the period each of its issues covers — a day, a dekad (1–10,
+11–20, 21 to the end of the month) or a month, the one that begins. "New bulletin" asks
+the server for the issue of the current period: a draft whose "Effective from" and
+"Effective until" are that period's, titled "{template} — {period}" in the admin's
+language, its forecast maps frozen. Its html is rendered by the studio when it is
+published — until then, neither the studio nor Wagtail's own publish actions will put it
+online.
 
-A template can also prepare its issue every day ("Daily draft at", in the template's
-header, site time by the quarter hour): a Celery beat task makes the draft once that time
-has passed, and a forecaster reviews and publishes it. Nothing is published
-automatically. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
+The banner of a template can hold dates ("Insert a date": period start, period end,
+period, publication date), which each issue fills with its own when it is displayed and
+rendered — "Valid from {start} to {end}" in the document, "Valid from 11 October 2026 to
+20 October 2026" on the page.
+
+A template can also prepare its issues ("Draft at", in the template's header, site time
+by the quarter hour): on the first day of each period, a Celery beat task makes the draft
+once that time has passed, and a forecaster reviews and publishes it. Nothing is
+published automatically. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
 Publishing and deleting clear ClimWeb's page cache, as Wagtail's own editor does: in
 production, ClimWeb caches public pages for hours.
 
@@ -214,6 +223,14 @@ forecast pull, so a bulletin never points at them: `POST api/forecast/` copies t
 map into the library, in a "Forecast maps" collection, and hands back its rendition like
 any image. Promoting the same map twice returns the same image; the library picker leaves
 that collection to searches.
+
+The same forecast also comes as a grid of cities (the "Cities" block): each city's
+weather icon, max/min temperatures and wind (an arrow, the compass point, the speed),
+in one to three columns, for all cities or a chosen list in a chosen order. It is html,
+not an image: it reflows on a phone, follows the editor's language and prints. An issue
+copies the forecast's values into its document, so a published bulletin keeps showing
+the forecast of its own date; "Update" appears when the office's forecast has changed
+since.
 
 Maps come from geomanager's own layer catalogue (`api/datasets/`), no `DashboardMap`
 snippet to configure first. Picking a layer freezes its tile path, **its date** and its

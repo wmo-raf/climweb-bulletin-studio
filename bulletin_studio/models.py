@@ -16,6 +16,8 @@ from wagtail.admin.forms import WagtailAdminPageForm
 
 from climweb.pages.products.models import ProductItemPage
 
+from . import periods
+
 
 def unique_child_slug(parent, base, exclude_pk=None):
     """A slug unique among `parent`'s children - Wagtail enforces sibling unicity."""
@@ -42,16 +44,20 @@ class BulletinPage(ProductItemPage):
     doc = models.JSONField(default=dict, blank=True)
     html = models.TextField(blank=True, default="")
     is_template = models.BooleanField(default=False, verbose_name=_("Template"))
-    # The template an issue was made from, so the daily draft knows whether today's
+    # The template an issue was made from, so the draft task knows whether the period's
     # exists. Nothing else follows the link: editing a template changes no issue.
     source_template = models.ForeignKey(
         "self", null=True, blank=True, editable=False, on_delete=models.SET_NULL,
         related_name="issues")
-    # A template only: each day at this time (site time, a quarter of an hour), a draft
-    # issue is prepared from it - see `issues.create_daily_drafts`.
-    daily_draft_at = models.TimeField(null=True, blank=True, editable=False)
-    # The last day it was prepared: a draft deleted by hand is not prepared again.
-    last_daily_draft = models.DateField(null=True, blank=True, editable=False)
+    # A template only. The period each of its issues covers - a day, a dekad, a month
+    # (`periods`): their `date`, `valid_until` and title follow it.
+    cadence = models.CharField(max_length=10, default=periods.DAILY, editable=False,
+                               choices=[(c, c) for c in periods.CADENCES])
+    # On the first day of each period at this time (site time, a quarter of an hour), a
+    # draft issue is prepared from it - see `issues.create_drafts`. None: never.
+    draft_at = models.TimeField(null=True, blank=True, editable=False)
+    # The first day of the last period prepared: a draft deleted by hand stays deleted.
+    last_draft = models.DateField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = _("Bulletin")
