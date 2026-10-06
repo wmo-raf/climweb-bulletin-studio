@@ -64,6 +64,23 @@ if not ProductPage.objects.exists():
     ))
     print("ProductPage created")
 
+# The office's social media accounts (Settings > Organisation), which ClimWeb's footer
+# shows on every page, the bulletins' included. Placeholder urls.
+from climweb.base.models.site_settings import OrganisationSetting
+
+org = OrganisationSetting.for_site(Site.objects.get(is_default_site=True))
+if not org.social_media_accounts:
+    org.social_media_accounts = [
+        {"type": "social_media_account",
+         "value": {"name": name, "icon": icon, "full_url": f"https://www.{domain}/climweb"}}
+        for name, icon, domain in [("Facebook", "facebook", "facebook.com"),
+                                   ("X", "x-twitter", "x.com"),
+                                   ("WhatsApp", "whatsapp", "whatsapp.com"),
+                                   ("YouTube", "youtube", "youtube.com")]
+    ]
+    org.save()
+    print("social media accounts added")
+
 # ClimWeb's WDQMS statistics (run_wdqms_stats, 00:00 and 12:00) backfill months of data on
 # a fresh database: for hours, they hold both processes of the dev worker, and the
 # forecast pull and the drafts wait behind them. Beat keeps `enabled` when it

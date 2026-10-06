@@ -80,7 +80,10 @@ class BulletinStoreTests(TestCase):
         self.assertTrue(published["url"])
 
         page = BulletinPage.objects.get(pk=issue["id"])
-        self.assertContains(self.client.get(page.url), "rain")
+        public = self.client.get(page.url)
+        self.assertContains(public, "rain")
+        # ClimWeb's share buttons, under the document
+        self.assertContains(public, f"sharer.php?u={page.get_full_url()}")
         # The template has no public page even if it somehow went live.
         BulletinPage.objects.filter(pk=tpl["id"]).update(live=True)
         self.assertEqual(self.client.get(BulletinPage.objects.get(pk=tpl["id"]).url).status_code, 404)

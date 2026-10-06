@@ -136,7 +136,7 @@ bulletin_studio/          the Django app
   models.py               BulletinPage(ProductItemPage): doc, html, is_template
   views.py                the admin page + the JSON store the JS app talks to
   templates/…/app.html    Wagtail admin shell + mount point for the JS app
-  templates/…/bulletin_page.html   the public page: the rendered html, nothing else
+  templates/…/bulletin_page.html   the public page: the rendered html, then share buttons
   static/…/app/           built JS bundle (see sync-frontend.sh)
 ```
 

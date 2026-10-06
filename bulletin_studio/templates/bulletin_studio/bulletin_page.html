@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static i18n get_share_url %}
 
 {% block body_class %}bulletin-page{% endblock %}
 
@@ -10,6 +10,14 @@
     {% endcomment %}
     <link rel="stylesheet" href="{% static 'bulletin_studio/app/bulletin-studio-content.css' %}">
     {% if has_map %}<link rel="stylesheet" href="{% static 'css/maplibre-gl.css' %}">{% endif %}
+    <style>
+        /* Aligned with the document's text and right under it (.bs-doc in the bundle's
+           content css). ClimWeb's page container is a centring flex: no width, no
+           full line; no margin collapsing either. */
+        .bs-share { width: 100%; max-width: 820px; margin: -2rem auto 2rem; padding: 0 1.25rem; }
+        .bs-share-label { font-weight: 700; margin: 0 0 .5rem; padding: 0; }
+        @media print { .bs-share { display: none; } }
+    </style>
 {% endblock %}
 
 {% block content %}
@@ -17,6 +25,16 @@
         {# Sanitized on write (views._read_body), never on read. #}
         {{ page.html|safe }}
     </main>
+    {% comment %}
+        ClimWeb's share buttons, as on its news and products: the networks come from
+        its ONLINE_SHARE_CONFIG setting. Outside the html, which is the document alone.
+    {% endcomment %}
+    <aside class="bs-share">
+        <p class="bs-share-label">{% translate "Share" %}</p>
+        <div class="share-buttons">
+            {% share_buttons url=page.get_full_url text=page.title %}
+        </div>
+    </aside>
 {% endblock %}
 
 {% block extra_js %}

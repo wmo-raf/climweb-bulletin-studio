@@ -76,7 +76,10 @@ The Python side is deliberately thin: a menu entry, one model, one public templa
 JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app:
 
 - `doc` — the editor's JSON, stored opaquely (no Python mirror to keep in sync)
-- `html` — what the editor rendered from it, and the **only** thing the public page serves
+- `html` — what the editor rendered from it, and the **only** content the public page
+  serves. Under it, ClimWeb's share buttons (`{% share_buttons %}`, as on its news): the
+  networks are its `ONLINE_SHARE_CONFIG` setting, not the admin. The office's own
+  accounts (Settings > Organisation) are in ClimWeb's footer. Neither is in the PDF.
 
 The PDF is the browser printing the studio. Above the bulletin it prints the identity
 ClimWeb's navbar shows, from Settings > Organisation (`views._letterhead`): logo,
