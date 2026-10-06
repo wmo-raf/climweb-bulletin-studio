@@ -51,9 +51,17 @@ Wagtail's `require_admin_access` (the user's preferred language), in the draft t
 preferred language of whoever last saved the template (`author_language`, from the latest
 revision's user — hence `save_revision(user=request.user)`). The studio formats its own
 dates in the admin's language too: the "issue date" blocks, and the banner's inserted
-dates (`{start}`, `{end}`, `{period}`, `{published}` in the eyebrow, title, subtitle and
-badges), which the document keeps as fields and the JS fills at display and render time —
-Python never reads them.
+dates (`{start}`, `{end}`, `{period}`, `{previous}`, `{published}` in the eyebrow, title,
+subtitle and badges), which the document keeps as fields and the JS fills at display and
+render time — Python never reads them. `{previous}` is the period before the issue's, of
+the same cadence: the past dekad an agrometeorological bulletin reviews before its outlook.
+
+Starting points ("New template") live in the JS (`templates.ts`). The dekadal
+agrometeorological one is the plan shared by four offices' bulletins (Benin, Burkina
+Faso, Chad, Kenya): highlights, rainfall (dekad, season), agrometeorological conditions,
+vegetation and crops, outlook, advice (crops, livestock), sources. Its maps are image
+blocks for now, captioned with the map each one expects; geomanager map blocks are the
+next step.
 
 The drafts: a template's `draft_at` (set in the studio, site time, floored to the quarter
 hour) makes the beat task `create_daily_drafts` (`bulletin-studio-daily-drafts`, every 15

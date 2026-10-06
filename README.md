@@ -201,9 +201,9 @@ published — until then, neither the studio nor Wagtail's own publish actions w
 online.
 
 The banner of a template can hold dates ("Insert a date": period start, period end,
-period, publication date), which each issue fills with its own when it is displayed and
-rendered — "Valid from {start} to {end}" in the document, "Valid from 11 October 2026 to
-20 October 2026" on the page.
+period, previous period, publication date), which each issue fills with its own when it
+is displayed and rendered — "Valid from {start} to {end}" in the document, "Valid from 11
+October 2026 to 20 October 2026" on the page.
 
 A template can also prepare its issues ("Draft at", in the template's header, site time
 by the quarter hour): on the first day of each period, a Celery beat task makes the draft
