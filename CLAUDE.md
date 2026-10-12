@@ -50,18 +50,32 @@ Dates follow the **admin's** language, not the site's: the title in the views th
 Wagtail's `require_admin_access` (the user's preferred language), in the draft task the
 preferred language of whoever last saved the template (`author_language`, from the latest
 revision's user — hence `save_revision(user=request.user)`). The studio formats its own
-dates in the admin's language too: the "issue date" blocks, and the banner's inserted
-dates (`{start}`, `{end}`, `{period}`, `{previous}`, `{published}` in the eyebrow, title,
-subtitle and badges), which the document keeps as fields and the JS fills at display and
-render time — Python never reads them. `{previous}` is the period before the issue's, of
-the same cadence: the past dekad an agrometeorological bulletin reviews before its outlook.
+dates in the admin's language too: the "issue date" blocks, and the inserted dates
+(`{start}`, `{end}`, `{period}`, `{previous}`, `{published}`, `{number}` in the banner's
+eyebrow, title, subtitle and badges, and in image captions), which the document keeps as
+fields and the JS fills at display and render time — Python never reads them. `{previous}`
+is the period before the issue's, of the same cadence: the past dekad an agrometeorological
+bulletin reviews before its outlook. `{number}` is the period's rank in its year (dekad
+1–36, month, day of year): the "No. 28" of a dekadal bulletin.
 
 Starting points ("New template") live in the JS (`templates.ts`). The dekadal
-agrometeorological one is the plan shared by four offices' bulletins (Benin, Burkina
-Faso, Chad, Kenya): highlights, rainfall (dekad, season), agrometeorological conditions,
-vegetation and crops, outlook, advice (crops, livestock), sources. Its maps are image
-blocks for now, captioned with the map each one expects; geomanager map blocks are the
-next step.
+agrometeorological one follows the review of 17 countries' bulletins ("10-day agromet
+bulletin: country review and ClimWeb template", Oct 2026): page 1 is enough on its own
+(key messages, a small rainfall map, the outlook in one line, three actions), then the
+maps that support it (rainfall and its anomaly with a legend in words, season so far,
+temperature, crop water and vegetation, outlook), advice as a table by region and sector,
+three optional sections (crops and markets, hydrology, seasonal context) and sources,
+station table and contacts. Its sentences are written, `[brackets]` marking what each
+issue replaces (catalogue strings carry `**bold**` and `|`-separated table rows). Its
+maps are image blocks whose captions give their period (`{previous}`, `{period}`),
+observed or forecast, and the Data Helper catalogue product that fills them.
+
+They are not geomanager map blocks yet: the Data Helper provisions **WMS** layers
+(all of them on the dev stack), geomanager's WMS serializer has no `tileJsonUrl`, and the
+map block keeps only layers with one, so it finds none. Binding a template's map to a
+catalogue product needs WMS in the map block, keyed on `layerName` (the catalogue's
+`product_code`, e.g. `layer_chirps-dekad_2.0_10d`; dataset UUIDs and localised titles
+differ per site), with its time following the issue's period.
 
 The drafts: a template's `draft_at` (set in the studio, site time, floored to the quarter
 hour) makes the beat task `create_daily_drafts` (`bulletin-studio-daily-drafts`, every 15
