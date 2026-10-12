@@ -27,6 +27,7 @@ Needs ClimWeb 1.1.7 or later; the forecast features need forecastmanager
 - Public page: ClimWeb's share buttons under the bulletin.
 - Bulletins are made in the studio only: Wagtail's "Add child page" no longer offers
   "Bulletin", which opened the plain product item form.
+- The admin menu names the pre-release a site runs: "Bulletin Studio (alpha 2)".
 
 ## 0.1.0a1 — 2026-10-02
 

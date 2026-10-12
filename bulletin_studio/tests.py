@@ -18,6 +18,7 @@ from climweb.pages.home.models import HomePage
 from climweb.pages.products.models import ProductIndexPage, ProductItemPage, ProductPage
 
 from .models import BulletinPage
+from .wagtail_hooks import menu_label
 
 
 class BulletinStoreTests(TestCase):
@@ -115,6 +116,14 @@ class PageTreeTests(SimpleTestCase):
         self.assertEqual(ProductPage.creatable_subpage_models(), [ProductItemPage])
         # ...but a bulletin may still be moved to another product page.
         self.assertIn(BulletinPage, ProductPage.allowed_subpage_models())
+
+
+class MenuTests(SimpleTestCase):
+    def test_a_pre_release_says_so_in_the_menu(self):
+        self.assertEqual(str(menu_label("0.1.0a2")), "Bulletin Studio (alpha 2)")
+        self.assertEqual(str(menu_label("0.2.0b1")), "Bulletin Studio (beta 1)")
+        self.assertEqual(str(menu_label("1.0.0")), "Bulletin Studio")
+        self.assertEqual(str(menu_label(None)), "Bulletin Studio", "not installed as a package")
 
 
 # smallest valid PNG: the image form checks the real format, not the extension

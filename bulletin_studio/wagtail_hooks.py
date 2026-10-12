@@ -1,9 +1,12 @@
 import logging
+import re
+from importlib.metadata import PackageNotFoundError, version
 
 from django.contrib import messages
 from django.db import transaction
 from django.shortcuts import redirect
 from django.urls import include, path, reverse
+from django.utils.text import format_lazy
 from django.utils.translation import gettext_lazy as _
 from wagtail import hooks
 from wagtail.admin.menu import MenuItem
@@ -22,11 +25,31 @@ def register_bulletin_studio_urls():
     ]
 
 
+PRE_RELEASES = {"a": "alpha", "b": "beta", "rc": "RC"}
+
+
+def menu_label(release):
+    """"Bulletin Studio (alpha 2)" while the package is a pre-release: whoever opens
+    it knows it is not finished, and which one the site runs."""
+    pre = re.search(r"(a|b|rc)(\d+)$", release or "")
+    if not pre:
+        return _("Bulletin Studio")
+    # lazy: the menu is built once, then shown in each admin's language
+    return format_lazy("{} ({} {})", _("Bulletin Studio"), PRE_RELEASES[pre[1]], pre[2])
+
+
+def installed_release():
+    try:
+        return version("climweb-bulletin-studio")
+    except PackageNotFoundError:
+        return None
+
+
 @hooks.register("register_admin_menu_item")
 def register_bulletin_studio_menu_item():
     # Single entry -> the JS app, which does its own routing (dashboard, editor)
     # behind the hash. Nothing else to hang off the Wagtail menu.
-    return MenuItem(_("Bulletin Studio"), reverse("bulletin_studio:app"),
+    return MenuItem(menu_label(installed_release()), reverse("bulletin_studio:app"),
                     icon_name="doc-full", order=200)
 
 
