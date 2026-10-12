@@ -40,6 +40,9 @@ class BulletinPage(ProductItemPage):
     template = "bulletin_studio/bulletin_page.html"
     parent_page_types = ["products.ProductPage"]
     subpage_types = []
+    # Made in the studio only: "Add child page" would open the plain product item form
+    # (title, dates, ClimWeb's `products` StreamField) and leave an empty bulletin.
+    is_creatable = False
 
     doc = models.JSONField(default=dict, blank=True)
     html = models.TextField(blank=True, default="")

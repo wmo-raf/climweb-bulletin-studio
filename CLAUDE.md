@@ -155,6 +155,9 @@ the wind stays in the office's unit. The arrow is a CSS shape turned by an inlin
 
 Gotchas worth knowing (mostly learned from the plugin, all still true):
 - `apps.ready()` must extend `ProductPage.subpage_types` — ClimWeb hardcodes it
+- `is_creatable = False`: a bulletin is made in the studio only, never from Wagtail's
+  "Add child page" (the plain product item form, an empty bulletin). It also makes
+  Wagtail refuse to "Copy" a bulletin; moving one still works
 - `base_form_class = WagtailAdminPageForm`: the native `ProductItemPage` form reads
   `parent.product.product_item_types` and crashes without the `products` StreamField
 - set `live=False` *before* `add_child`, or Wagtail publishes the page

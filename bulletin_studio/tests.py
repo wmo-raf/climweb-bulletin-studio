@@ -6,7 +6,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from wagtail.images import get_image_model
@@ -15,7 +15,7 @@ from wagtail.models import Page, Site
 from climweb.base.models import OrganisationSetting
 from climweb.base.models.snippets import Product, ServiceCategory
 from climweb.pages.home.models import HomePage
-from climweb.pages.products.models import ProductIndexPage, ProductPage
+from climweb.pages.products.models import ProductIndexPage, ProductItemPage, ProductPage
 
 from .models import BulletinPage
 
@@ -107,6 +107,14 @@ class BulletinStoreTests(TestCase):
             clear.assert_called_once()
             self.client.delete(url)
             self.assertEqual(clear.call_count, 2)
+
+
+class PageTreeTests(SimpleTestCase):
+    def test_bulletins_are_made_in_the_studio_not_in_the_page_tree(self):
+        # "Add child page" under a product page offers the product item only...
+        self.assertEqual(ProductPage.creatable_subpage_models(), [ProductItemPage])
+        # ...but a bulletin may still be moved to another product page.
+        self.assertIn(BulletinPage, ProductPage.allowed_subpage_models())
 
 
 # smallest valid PNG: the image form checks the real format, not the extension
