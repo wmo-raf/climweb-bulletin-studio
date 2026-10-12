@@ -94,8 +94,9 @@ def _letterhead(request):
     return {
         "logo": _letterhead_image(organisation.logo),
         "flag": _letterhead_image(organisation.country_flag),
-        # the navbar's text beside the logo, else the organisation's name
-        "text": organisation.logo_append or organisation.name,
+        # the navbar's text beside the logo, else the organisation's name (ClimWeb
+        # before 1.2.1 has no logo_append)
+        "text": getattr(organisation, "logo_append", None) or organisation.name,
     }
 
 
