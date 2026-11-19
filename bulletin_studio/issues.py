@@ -132,23 +132,25 @@ def issue_title(title, cadence, start, end=None):
     return f"{title} — {label}"
 
 
-def create_issue(template, day=None, user=None):
+def create_issue(template, day=None, user=None, prepared=False):
     """The issue of `template` for the period containing `day` (today, for the site), as
-    a draft under the same product page."""
+    a draft under the same product page. `prepared`: by the draft task, which the studio
+    tells the editors (`prepared_at`), rather than by someone's "New bulletin"."""
     # the settings from the row, which the draft task reads too; the document from the
     # latest revision, which the studio saves
     start, end = periods.period(
         template.cadence, day or timezone.localdate(timezone=timezone.get_default_timezone()))
-    cadence, template = template.cadence, template.get_latest_revision_as_object()
+    cadence, kind, template = template.cadence, template.kind, template.get_latest_revision_as_object()
     doc = copy.deepcopy(template.doc) if isinstance(template.doc, dict) else {}
     freeze_forecasts(doc.get("blocks"), start, user=user)
     freeze_city_forecasts(doc.get("blocks"), start)
 
     parent = template.get_parent()
     # live=False must be set *before* add_child, or Wagtail publishes the page.
-    issue = BulletinPage(doc=doc, html="", is_template=False, live=False, date=start,
+    issue = BulletinPage(doc=doc, html="", kind=kind, is_template=False, live=False, date=start,
                          valid_until=end if end != start else None, cadence=cadence,
-                         source_template_id=template.pk)
+                         source_template_id=template.pk,
+                         prepared_at=timezone.now() if prepared else None)
     issue.apply_title(issue_title(template.title, cadence, start, end), parent=parent)
     parent.add_child(instance=issue)
     issue.save_revision(user=user)
@@ -180,7 +182,7 @@ def create_drafts(now=None):
         try:
             if not template.issues.filter(date=start).exists():
                 with translation.override(author_language(template)):
-                    made.append(create_issue(template, start))
+                    made.append(create_issue(template, start, prepared=True))
         except Exception:  # the next run tries again; the other templates go on
             logger.exception("Draft: could not prepare the issue of %s of %r", start, template.title)
             continue

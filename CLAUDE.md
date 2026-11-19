@@ -70,12 +70,11 @@ issue replaces (catalogue strings carry `**bold**` and `|`-separated table rows)
 maps are image blocks whose captions give their period (`{previous}`, `{period}`),
 observed or forecast, and the Data Helper catalogue product that fills them.
 
-They are not geomanager map blocks yet: the Data Helper provisions **WMS** layers
-(all of them on the dev stack), geomanager's WMS serializer has no `tileJsonUrl`, and the
-map block keeps only layers with one, so it finds none. Binding a template's map to a
-catalogue product needs WMS in the map block, keyed on `layerName` (the catalogue's
-`product_code`, e.g. `layer_chirps-dekad_2.0_10d`; dataset UUIDs and localised titles
-differ per site), with its time following the issue's period.
+They are not geomanager map blocks yet. The map block draws the Data Helper's **WMS**
+layers now (see Maps below), but an author picks the layer and its date by hand: binding a
+template's map to a catalogue product needs the block keyed on `layerName` (the
+catalogue's `product_code`, e.g. `layer_chirps-dekad_2.0_10d`; dataset UUIDs and localised
+titles differ per site), with its time following the issue's period.
 
 The drafts: a template's `draft_at` (set in the studio, site time, floored to the quarter
 hour) makes the beat task `create_daily_drafts` (`bulletin-studio-daily-drafts`, every 15
@@ -84,7 +83,22 @@ predates the other cadences and stays, beat's DatabaseScheduler keeps renamed ro
 the issue of the current period once that time has passed on its first day — or later in
 the period, if the worker was stuck, but never a period gone by. Once a period per
 template: `last_draft` keeps a draft deleted by hand from coming back, and an issue of the
-period made by hand counts. A human always publishes.
+period made by hand counts. A human always publishes. An issue the task prepares carries
+`prepared_at`: the studio's home lists those as notifications (the bell counts them) until
+they are published. A template's `nextDraft` in the API says when the next one comes and
+which period it covers (`periods.next_draft`, skipping every period whose issue exists or
+was prepared — the same rule as the task).
+
+Navigation (JS, `router.ts`): home, templates, a template and its issues, bulletins
+(filters in the hash), the editor; "New publication" opens one dialog from anywhere — an
+issue of a template for the current, next or another period, or a **one-off** bulletin or
+flash without template, from a starting layout. A one-off is a non-template page with no
+`source_template` and no `valid_until`: the only page whose `date` the studio may set
+(`views._date_refused`), an issue's being its period's. An issue whose template was
+deleted looks the same, and is listed "without template". The list endpoint feeds all of
+it — `template`, `publishedAt`, `preparedAt`, `issueCount`, `nextDraft` per page, fetched
+in a constant number of queries (`views._Related`): the archive grows by an issue a day per
+daily template.
 
 The Python side is deliberately thin: a menu entry, one model, one public template, nine
 JSON endpoints. Anything about blocks, layout or rendering belongs in the JS app:
@@ -105,7 +119,52 @@ The one exception to "thin" is images: they go through `api/images/` into the Wa
 library rather than living as dataURLs in `doc`, and come back as renditions
 (`width-1200`). Renditions are files on disk, so their urls survive in the html snapshot —
 but deleting an image from the library will break bulletins that reference it, and nothing
-warns about it (the reference lives inside an opaque JSON field).
+warns about it (the reference lives inside an opaque JSON field). Wagtail's image form
+requires a collection as soon as the user may add to more than one (the forecast maps
+make a second): `images` fills it in, the root by default.
+
+The link preview (og:image, what WhatsApp or Facebook show under a shared link) is
+ClimWeb's own `search_image` (`MetadataPageMixin`, on `ProductItemPage`), else the
+product's image. The studio sets it on every save (`shareImage`, an image id, in the
+revision like the html, so it changes when the page is published): a bulletin's first
+image or forecast map in reading order, a flash's capture.
+
+Media flashes (`kind = "flash"`, set when the template is made, copied to its issues):
+one square image for social networks and the text of its post — a bulletin of another
+kind, made from a template and published the same way, so Python knows nothing more of
+them than the field. The studio shows the document as a 540 px square (`FlashCanvas.vue`:
+the organisation's logo and flag, small, at the top — its name only when there is no
+logo, which carries it already — the site and the OSM credit at the foot,
+so an image forwarded from group to group says where it comes from) and captures that DOM
+at 1080 px with modern-screenshot (`src/share.ts`) — no second layout engine. The first
+filled map, forecast map or image is the backdrop: it takes the whole square under the
+identity bar, which stays white (a logo does not read on every map), and the rest lies on
+it — the foot on a transparent background (dark text, white halo: it reads on a light map
+and on a dark satellite image), the blocks written before it at the top, those after it
+at the bottom, on cards. No map legend and no text on the image: the banner (title and
+date) is all it says, what happens and what to do are in the post, the image's caption
+on WhatsApp — the flash palette has no text, table, date or button block
+(`Sidebar.vue`). FlashCanvas finds the backdrop in the DOM
+(`ui.backdropId`), not in the doc: a template's forecast map is only a preview its block
+loads. Its settings (layer, date, image…) are teleported under the square, where they
+hide nothing. Without a backdrop the blocks stack on white. On publish
+the capture goes to the library (`purpose=flash` → collection "Media flashes", out of the
+picker) and its html is that image plus the post text; the doc keeps `caption` and
+`share` (`imageId`, `src`, `alt`) beside `blocks`. `caption` is WhatsApp markup
+(`*bold*`, `_italic_`, `~strike~`, ```` ```code``` ````, a line per paragraph), what
+gets copied and shared as is: the studio edits it formatted (`CaptionEditor.vue`,
+Lexical, with WhatsApp's typing shortcuts), and `src/whatsapp.ts` reads, writes and
+renders it for the public page (`span.bs-*`, the sanitizer has no `code` tag). Its emoji
+picker is every Unicode emoji (emoji-picker-element, `src/emoji.ts`), searched in the
+admin's language: the CLDR data of en, fr, es and pt is in the bundle (`assets/data-*.json`,
+~450 KB each, one fetched on first opening, then kept in IndexedDB), never a CDN — a site
+may be offline. Arabic has no data: its picker is translated, its search is English. The
+favourites row starts on weather emoji. Sharing is the author's: the system
+share sheet, copy the image (for WhatsApp Web), download, copy the text — no network
+account is connected. A flash map's framing follows the author (no "Frame here"); the
+capture hides the editing chrome and redraws the maps at their new size first (a resized
+WebGL canvas is blank until then). The logo, name and flag are Settings > Organisation,
+not the template.
 
 That choice is deliberate: a Python renderer of the block tree would be a second layout
 engine to keep in step with the JS one, which is what sank the plugin. The price is that a
@@ -116,6 +175,25 @@ survive a domain change), the frozen timestamp and the legend; the site supplies
 boundary tiles and default bounds through `api/map-config/`. maplibre refuses relative
 urls in its sources, so `src/map.ts` makes them absolute at mount time. The basemap is
 deliberately light (OSM) where ClimWeb's dashboards are dark: a bulletin gets printed.
+
+WMS layers (all 487 of the dev stack, everything the Data Helper provisions) have no
+TileJSON: geomanager serves a GetMap template (`{bbox-epsg-3857}`, which maplibre fills,
+and `{time}`), the `layerName` and the capabilities url. The block stores that template
+as is (absolute: the service is not on the site), and the studio reads dates and legend
+from the capabilities in the browser (`src/wms.ts`), as geomanager's own viewer does —
+the five services of the dev stack send CORS headers. A service that does not would need
+a proxy. The legend is the service's LegendURL image, laid over the map (not in a
+flash). Dates: the dimension's default, else the latest not in the future; intervals are
+expanded from
+their start, 60 at most. eStation declares `19810101/20261021/PT5M` for dekads, which
+says nothing of the real dates: the end only. Its capabilities take ~20 s to come back,
+once per session.
+
+Many catalogue layers are empty over a given country — rain in the dry season, the
+Europe-only ones (CAMS Europe, all of EFAS) — and a transparent layer looks like a map
+that failed. The editor says which it is, on the map: loading (after 0.8 s), refused (a
+tile error; maplibre stays silent on a 404), or empty, from one GetMap of the whole view
+whose pixels are all transparent (`wms.isBlank`).
 
 Forecast map (`bulletin_studio/forecast/`, in progress — plan in
 `../weather-forecast-snapshot/PLAN.md`): the second exception to "thin". A country map of
@@ -203,7 +281,8 @@ stack on :8000 is independent). The database starts **empty** — `dev-bootstrap
 (idempotent) creates the superuser, HomePage, ProductIndexPage and a ProductPage the
 studio needs before it has anywhere to put a template. The first `up` runs all ClimWeb
 migrations, give it a minute. `bulletin_studio/` is bind-mounted (Python hot-reloads);
-packaging changes need `--build`.
+packaging changes need `--build`. A new `templatetags` module needs a restart of
+`climweb`: Django lists tag libraries at startup, and the page fails with a KeyError.
 
 The compose file also mounts `../bulletin-studio-js/dist` at `/bulletin-studio-js/dist`,
 which is where the `static/bulletin_studio/app` symlink resolves inside the container.
@@ -225,7 +304,8 @@ Dev-stack traps:
 
 Frontend iteration: `npm run dev` in `../bulletin-studio-js` (port 5180, strictPort) plus
 `BULLETIN_STUDIO_DEV_SERVER=http://localhost:5180` in `.env`. Otherwise `npm run build`
-then `manage.py collectstatic --noinput`.
+then `manage.py collectstatic --noinput`. `npm test` there runs vitest on the pure modules
+(periods, router, listings, labels, dates) — vitest 4, as 5 needs Node 22.
 
 Forecast map iteration, on the host, no stack (icons are read from `../forecastmanager`):
 
@@ -253,7 +333,9 @@ later forecast of each daily period onto today (test data) and redraws.
 
 CSS trap: Tailwind 4 puts its utilities in `@layer utilities`, and any **unlayered** rule
 (wagtail's `core.css`) beats a layered one whatever the specificity. The app's
-`src/style.css` therefore imports `tailwindcss/utilities.css` outside the layer.
+`src/style.css` therefore imports `tailwindcss/utilities.css` outside the layer. The
+preflight stays layered, so wagtail's own element rules survive it: its `h1` keeps a
+bottom margin (the flash header resets it).
 
 Naming: repo and distribution `climweb-bulletin-studio` (`wmo-raf/`), as
 `climweb-dataset-helper`; module and app label `bulletin_studio`, admin url
@@ -275,11 +357,22 @@ break:
 - `install_requires` floors stay loose (`django>=4.2`, `wagtail>=6.3`): ClimWeb pins
   both, and a floor above its pin makes pip upgrade them inside ClimWeb's venv.
 - Check a release against the released image (`ghcr.io/wmo-raf/climweb:vX`, production
-  settings, admin at `/cms-admin/`), not only `climweb_dev`. The HomePage trap above only
-  exists on ClimWeb's unreleased main, and the tests pass on 1.2.2.
+  settings, admin at `/cms-admin/`), not only `climweb_dev`. The HomePage trap above is
+  in 1.2.3 too, so the whole suite passes on 1.2.2 only. 1.2.3 ships `bulletin_studio` in
+  its `INSTALLED_APPS`: test it without `CLIMWEB_ADDITIONAL_APPS`, the package mounted
+  ahead of the installed one on `PYTHONPATH`.
 - ClimWeb's static storage is `ManifestStaticFilesStorage`: `{% static %}` entries get
-  hashed names, but the chunks the bundle imports relatively
-  (`bulletin-studio-map.js`…) keep unhashed names and are not cache-busted on upgrade.
+  hashed names, but Django does not rewrite the chunks the bundle imports relatively.
+  Vite hashes those itself (`bulletin-studio-map-<hash>.js`): with a stable name, a
+  browser keeps the old chunk in cache, the new entry finds none of the exports it
+  expects, and the studio stays on "The Bulletin Studio frontend bundle is not
+  installed".
+- The entries keep stable names, and outside the manifest storage (the dev stack) Django
+  serves them with no Cache-Control: a browser keeps one for 10 % of its age without
+  asking — hours — and ran a new script under a pre-flash stylesheet (a flash's map 0 px
+  high, logo and flag at full size). The templates load the entries through
+  `{% studio_static %}` (`templatetags/bulletin_studio_tags.py`), which adds the file's
+  mtime as `?v=`, and leaves an already hashed name alone.
 
 ## i18n
 

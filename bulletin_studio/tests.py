@@ -2,15 +2,18 @@
 a publication, and the public page serving the rendered html."""
 import base64
 import json
+import os
+import tempfile
 from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import Client, SimpleTestCase, TestCase
+from django.conf import settings
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 from wagtail.images import get_image_model
-from wagtail.models import Page, Site
+from wagtail.models import Collection, Page, Site
 
 from climweb.base.models import OrganisationSetting
 from climweb.base.models.snippets import Product, ServiceCategory
@@ -18,6 +21,7 @@ from climweb.pages.home.models import HomePage
 from climweb.pages.products.models import ProductIndexPage, ProductItemPage, ProductPage
 
 from .models import BulletinPage
+from .templatetags.bulletin_studio_tags import studio_static
 from .wagtail_hooks import menu_label
 
 
@@ -162,6 +166,27 @@ class ImageStoreTests(TestCase):
         })
         self.assertEqual(refused.status_code, 400)
 
+    def test_with_several_collections(self):
+        # the forecast maps make a second collection: Wagtail's form then asks for one
+        Collection.get_first_root_node().add_child(name="Forecast maps")
+        url = reverse("bulletin_studio:images")
+
+        def upload(title, **extra):
+            response = self.client.post(url, {
+                "title": title, "file": SimpleUploadedFile("x.png", PNG, content_type="image/png"), **extra})
+            self.assertEqual(response.status_code, 201, response.content)
+            return get_image_model().objects.get(pk=response.json()["id"])
+
+        photo = upload("Photo")
+        self.assertEqual(photo.collection, Collection.get_first_root_node())
+        flash = upload("Heavy rain", purpose="flash")
+        self.assertEqual(flash.collection.name, "Media flashes")
+        self.assertEqual(upload("Second flash", purpose="flash").collection, flash.collection)
+
+        # the flashes' captures stay out of the picker, unless searched for
+        self.assertEqual([i["id"] for i in self.client.get(url).json()], [photo.pk])
+        self.assertEqual([i["id"] for i in self.client.get(url, {"q": "rain"}).json()], [flash.pk])
+
 
 class LetterheadTests(TestCase):
     def setUp(self):
@@ -189,3 +214,46 @@ class LetterheadTests(TestCase):
         organisation.logo_append = "Agence nationale de la météorologie"
         organisation.save()
         self.assertContains(self.client.get(url), 'data-letterhead-text="Agence nationale de la météorologie"')
+
+
+class StudioStaticTests(SimpleTestCase):
+    """The bundle's entries keep their names, and Django serves static files with no
+    Cache-Control: a browser kept an old stylesheet under a new script for hours. Their
+    urls carry the file's version instead."""
+
+    ENTRY = "bulletin_studio/test-only/entry.css"  # not a file of the real bundle
+
+    def setUp(self):
+        self.source = tempfile.TemporaryDirectory()
+        self.root = tempfile.TemporaryDirectory()
+        self.addCleanup(self.source.cleanup)
+        self.addCleanup(self.root.cleanup)
+        storages = {**settings.STORAGES,
+                    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}}
+        overridden = override_settings(STATICFILES_DIRS=[self.source.name], STATIC_ROOT=self.root.name,
+                                       STATIC_URL="/static/", STORAGES=storages)
+        overridden.enable()
+        self.addCleanup(overridden.disable)
+
+    def write(self, base, mtime):
+        path = os.path.join(base, self.ENTRY)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").close()
+        os.utime(path, (mtime, mtime))
+
+    def test_the_source_until_collected(self):
+        self.write(self.source.name, 1_800_000_000)
+        self.assertEqual(studio_static(self.ENTRY), f"/static/{self.ENTRY}?v=1800000000")
+
+    def test_the_collected_copy_is_the_one_served(self):
+        self.write(self.source.name, 1_800_000_000)
+        self.write(self.root.name, 1_800_000_500)
+        self.assertEqual(studio_static(self.ENTRY), f"/static/{self.ENTRY}?v=1800000500")
+
+    def test_no_file_no_version(self):
+        self.assertEqual(studio_static(self.ENTRY), f"/static/{self.ENTRY}")
+
+    def test_a_hashed_name_is_left_alone(self):
+        hashed = "/static/bulletin_studio/test-only/entry.0123abcd.css"
+        with mock.patch("bulletin_studio.templatetags.bulletin_studio_tags.static", return_value=hashed):
+            self.assertEqual(studio_static(self.ENTRY), hashed)

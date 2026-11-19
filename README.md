@@ -27,6 +27,9 @@ HomePage → ProductIndexPage → ProductPage ("Agromet bulletin")
 - The page serves the **HTML the JS app rendered**. There is no Python renderer of the
   block document, so the editor stays the single source of layout truth; the document
   itself (`doc`) is stored opaquely next to it.
+- A **media flash** is the other kind of template: one square image for social networks
+  (a title with the date, a map, what to do) and the text of its post. Its issues are
+  published the same way; their page shows the image, and so does a shared link.
 
 ## Status
 
@@ -122,6 +125,12 @@ creates product pages itself.
   a bulletin again once someone opens and saves it.
 - **Images are not reference-tracked.** Bulletins point at renditions of library images.
   Deleting an image from the library breaks every bulletin using it, without any warning.
+- **WMS dates come from the service.** The map block reads a WMS layer's dates and
+  legend from the service's capabilities, in the browser: a service without CORS headers
+  cannot be read, and a slow one (eStation, ~20 s) makes the first pick wait. eStation's
+  dekadal layers declare no usable list of dates, so only the latest is offered.
+- **Each flash publication adds an image** to the "Media flashes" collection: the
+  image as it was shared, kept even when the flash is republished.
 - **Languages.** The studio UI exists in English, French, Spanish, Portuguese and
   Arabic. Other ClimWeb languages (Amharic, Swahili) fall back to English.
 - **Uninstalling.** Delete the bulletin pages first. Wagtail cannot display pages whose
@@ -179,22 +188,23 @@ All under `/<admin path>/bulletin-studio/`, staff-only, CSRF-protected (send `X-
 | `GET` | `api/product-pages/` | the products a bulletin can live under |
 | `GET` | `api/images/` | browse the ClimWeb image library (`?q=` filters on title) |
 | `GET` | `api/map-config/` | where geomanager serves its layers, admin boundary tiles, country bounds |
-| `POST` | `api/images/` | upload an image into that library |
+| `POST` | `api/images/` | upload an image into that library (`purpose=flash`: a flash's capture, in its own collection) |
 | `GET` | `api/forecast/` | the forecast maps drawn from `?date=` (today by default), and the periods they cover |
 | `POST` | `api/forecast/` | promote one (`{date, period}`) into the image library, frozen |
 | `GET` | `api/forecast/cities/` | the published forecast of `?date=&period=` city by city, and every city |
-| `GET` | `api/bulletins/` | dashboard listing (templates and issues, metadata only) |
-| `POST` | `api/bulletins/` | create under a product page |
+| `GET` | `api/bulletins/` | every template and publication, metadata only: template, publication and preparation times, a template's issue count and next automatic draft |
+| `POST` | `api/bulletins/` | create under a product page (`kind`: `bulletin` or `flash`, then fixed; `date`: a one-off's day) |
 | `GET` | `api/bulletins/<id>/` | read one, with its document (latest draft) |
-| `PUT` | `api/bulletins/<id>/` | save — a Wagtail draft revision |
+| `PUT` | `api/bulletins/<id>/` | save — a Wagtail draft revision (`shareImage`: the image of its link preview; `date`: a one-off's day, refused on an issue or a template) |
 | `POST` | `api/bulletins/<id>/issues/` | a new issue of this template, the one of the period containing `{date}` (today by default), made on the server |
 | `POST` | `api/bulletins/<id>/publish/` | publish the draft |
 | `DELETE` | `api/bulletins/<id>/` | delete |
 
 Saving never publishes: a live issue keeps serving its published html until someone hits
 publish. A template sets the period each of its issues covers — a day, a dekad (1–10,
-11–20, 21 to the end of the month) or a month, the one that begins. "New bulletin" asks
-the server for the issue of the current period: a draft whose "Effective from" and
+11–20, 21 to the end of the month) or a month, the one that begins. "New publication"
+asks the server for the issue of a period (the current one, the next, or the one of
+another day): a draft whose "Effective from" and
 "Effective until" are that period's, titled "{template} — {period}" in the admin's
 language, its forecast maps frozen. Its html is rendered by the studio when it is
 published — until then, neither the studio nor Wagtail's own publish actions will put it
@@ -208,7 +218,11 @@ October 2026 to 20 October 2026" on the page.
 A template can also prepare its issues ("Draft at", in the template's header, site time
 by the quarter hour): on the first day of each period, a Celery beat task makes the draft
 once that time has passed, and a forecaster reviews and publishes it. Nothing is
-published automatically. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
+published automatically: the studio's home lists the drafts waiting for review, and each
+template says when its next one comes.
+
+A publication can also be made without template — a one-off bulletin or flash, started
+from a layout, whose day the author sets. The `html` payload is sanitized on write (`nh3`) — it comes from a browser.
 Publishing and deleting clear ClimWeb's page cache, as Wagtail's own editor does: in
 production, ClimWeb caches public pages for hours.
 
@@ -231,6 +245,26 @@ not an image: it reflows on a phone, follows the editor's language and prints. A
 copies the forecast's values into its document, so a published bulletin keeps showing
 the forecast of its own date; "Update" appears when the office's forecast has changed
 since.
+
+A shared link (WhatsApp, Facebook, X…) shows the page's image: ClimWeb's own og:image,
+its `search_image`, which the studio sets on each save — a bulletin's first image or
+forecast map, a flash's image.
+
+A **media flash** is composed in a 540 px square — the organisation's logo and flag small
+on a white bar at the top, the site's address at the foot, so the image still says where
+it comes from once forwarded — and exported at 1080 × 1080, the square every network
+shows uncropped. A map, forecast map or image fills the rest of the square, without a
+legend, and the banner (title and date) lies on it; the foot is on a transparent
+background. No text goes on the image: it is in the post, which goes with the image as
+its WhatsApp caption. The studio warns when the content no longer fits. Next to it, the
+text of the post, formatted as WhatsApp formats it (bold, italic, strikethrough, code,
+and every emoji, searchable in the admin's language), stored and copied in WhatsApp's own `*bold*` markup; then the
+ways to share it: the phone's share sheet (WhatsApp, Telegram… with the image attached),
+"Copy the image" then "Copy the text" (the two steps of WhatsApp Web), download.
+Publishing captures the image into the
+library ("Media flashes" collection): the flash's page shows it with the post text, and
+its link preview is the image itself. No social network account is connected: posting
+stays with the author.
 
 Maps come from geomanager's own layer catalogue (`api/datasets/`), no `DashboardMap`
 snippet to configure first. Picking a layer freezes its tile path, **its date** and its

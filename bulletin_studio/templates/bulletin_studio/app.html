@@ -1,5 +1,5 @@
 {% extends "wagtailadmin/base.html" %}
-{% load static i18n %}
+{% load static i18n bulletin_studio_tags %}
 {% get_current_language as LANGUAGE_CODE %}
 {% block titletag %}{% trans "Bulletin Studio" %}{% endblock %}
 {% block bodyclass %}bulletin-studio{% endblock %}
@@ -8,7 +8,7 @@
     {{ block.super }}
     {% if not dev_server %}
         {# In dev mode the styles arrive through Vite's module graph. #}
-        <link rel="stylesheet" href="{% static 'bulletin_studio/app/bulletin-studio.css' %}">
+        <link rel="stylesheet" href="{% studio_static 'bulletin_studio/app/bulletin-studio.css' %}">
     {% endif %}
     <link rel="stylesheet" href="{% static 'css/maplibre-gl.css' %}">
     <style>
@@ -74,6 +74,6 @@
         <script type="module" src="{{ dev_server }}/@vite/client"></script>
         <script type="module" src="{{ dev_server }}/src/main.ts"></script>
     {% else %}
-        <script type="module" src="{% static 'bulletin_studio/app/bulletin-studio.js' %}"></script>
+        <script type="module" src="{% studio_static 'bulletin_studio/app/bulletin-studio.js' %}"></script>
     {% endif %}
 {% endblock %}

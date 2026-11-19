@@ -18,6 +18,11 @@ from climweb.pages.products.models import ProductItemPage
 
 from . import periods
 
+# What the studio composes: a bulletin (a document, printed as a PDF) or a media flash
+# (one square image for social networks, and its post text).
+BULLETIN, FLASH = "bulletin", "flash"
+KINDS = (BULLETIN, FLASH)
+
 
 def unique_child_slug(parent, base, exclude_pk=None):
     """A slug unique among `parent`'s children - Wagtail enforces sibling unicity."""
@@ -47,6 +52,10 @@ class BulletinPage(ProductItemPage):
     doc = models.JSONField(default=dict, blank=True)
     html = models.TextField(blank=True, default="")
     is_template = models.BooleanField(default=False, verbose_name=_("Template"))
+    # Set when the template is made, then fixed: its issues take it. Only the studio
+    # tells a bulletin from a flash - their doc, their html and their page are alike.
+    kind = models.CharField(max_length=10, default=BULLETIN, editable=False,
+                            choices=[(k, k) for k in KINDS])
     # The template an issue was made from, so the draft task knows whether the period's
     # exists. Nothing else follows the link: editing a template changes no issue.
     source_template = models.ForeignKey(
@@ -61,6 +70,9 @@ class BulletinPage(ProductItemPage):
     draft_at = models.TimeField(null=True, blank=True, editable=False)
     # The first day of the last period prepared: a draft deleted by hand stays deleted.
     last_draft = models.DateField(null=True, blank=True, editable=False)
+    # An issue only: when the draft task prepared it, for the studio to tell the editors
+    # what is waiting for them. None: made by hand.
+    prepared_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = _("Bulletin")

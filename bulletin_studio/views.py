@@ -16,6 +16,7 @@ import nh3
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Count
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import NoReverseMatch, reverse
@@ -24,6 +25,7 @@ from django.views.decorators.http import require_http_methods
 from wagtail.admin.auth import require_admin_access
 from wagtail.images import get_image_model
 from wagtail.images.forms import get_image_form
+from wagtail.models import Collection, Page
 from wagtailcache.cache import clear_cache
 
 from climweb.base.models import OrganisationSetting
@@ -31,7 +33,7 @@ from climweb.pages.products.models import ProductPage
 
 from . import periods
 from .forecast import MAPS_COLLECTION
-from .models import BulletinPage
+from .models import BULLETIN, FLASH, KINDS, BulletinPage
 
 MAX_BODY = 5 * 1024 * 1024  # a bulletin is text + image references, not a payload dump
 
@@ -40,6 +42,9 @@ MAX_BODY = 5 * 1024 * 1024  # a bulletin is text + image references, not a paylo
 IMAGE_RENDITION = "width-1200"
 IMAGE_THUMB = "fill-160x120"
 IMAGE_PAGE = 24
+# The image of each flash publication, as the studio captured it: the one its page
+# shows and its link preview. Out of the picker, like the forecast maps.
+FLASH_COLLECTION = "Media flashes"
 # The organisation's logo and flag, at the head of the printed bulletin: some 15 mm
 # high at most, so 240 px keeps them sharp on paper (renditions never upscale).
 LETTERHEAD_RENDITION = "height-240"
@@ -121,12 +126,66 @@ def _day(value):
     return value.isoformat() if value else None
 
 
-def _meta(page, parent=None):
-    """Dashboard listing shape - no doc, the list view never renders it."""
-    parent = parent or page.get_parent()
+def _site_now():
+    """The site's wall clock, naive: `draft_at` is set in it and the draft task reads it
+    (`issues.create_drafts`), whatever the admin's own zone."""
+    return timezone.localtime(timezone=timezone.get_default_timezone()).replace(tzinfo=None)
+
+
+class _Related:
+    """What `_meta` tells of pages beyond their own row - their product page, their
+    template, a template's issues and its next draft - fetched for all of them at once.
+    The studio lists every bulletin, an archive that grows by an issue a day per daily
+    template: a query or two per page would grow with it. One page is a list of one."""
+
+    def __init__(self, pages, parent=None):
+        # a page's path is its parent's plus one step
+        self.parents = {parent.path: parent} if parent else {}
+        paths = {p.path[:-Page.steplen] for p in pages} - self.parents.keys()
+        self.parents.update((p.path, p) for p in Page.objects.filter(path__in=paths))
+
+        # An issue's template is in the list already when the list is the studio's: all of them.
+        templates = [p for p in pages if p.is_template]
+        self.titles = {p.pk: p.title for p in templates}
+        others = {p.source_template_id for p in pages} - self.titles.keys() - {None}
+        self.titles.update(Page.objects.filter(pk__in=others).values_list("pk", "title"))
+
+        self.issue_counts = dict(
+            BulletinPage.objects.filter(source_template__in=templates).order_by()
+            .values_list("source_template").annotate(Count("pk"))) if templates else {}
+
+        # The next draft of each template that prepares them, skipping the periods done as
+        # `issues.create_drafts` decides it: prepared once already (a draft deleted by
+        # hand stays deleted), or an issue of the period exists, made by hand or not -
+        # the current period's, or one made ahead of time.
+        now = _site_now()
+        starts = {p.pk: periods.period(p.cadence, now.date())[0] for p in templates if p.draft_at}
+        made = set(BulletinPage.objects
+                   .filter(source_template__in=starts.keys(), date__gte=min(starts.values()))
+                   .values_list("source_template", "date")) if starts else set()
+        self.next_drafts = {}
+        for template in templates:
+            if template.pk not in starts:
+                continue
+            next_one = periods.next_draft(
+                template.cadence, template.draft_at, now,
+                lambda start, t=template: (t.pk, start) in made or bool(t.last_draft and start <= t.last_draft))
+            if next_one:
+                at, first, last = next_one
+                self.next_drafts[template.pk] = {
+                    "at": f"{at:%Y-%m-%dT%H:%M}", "start": first.isoformat(), "end": last.isoformat()}
+
+
+def _meta(page, parent=None, request=None, related=None):
+    """Dashboard listing shape - no doc, the list view never renders it. `related`: what
+    the list fetched for all its pages; a single page fetches its own."""
+    related = related or _Related([page], parent)
+    parent = related.parents[page.path[:-Page.steplen]]
+    template = page.source_template_id
     return {
         "id": page.pk,
         "title": page.title,
+        "kind": page.kind,
         "isTemplate": page.is_template,
         # the period the issue covers: its forecast maps, "issue date" blocks and date
         # fields follow it. No `validUntil` for a single day.
@@ -134,18 +193,30 @@ def _meta(page, parent=None):
         "validUntil": _day(page.valid_until),
         "cadence": page.cadence,
         "draftAt": f"{page.draft_at:%H:%M}" if page.draft_at else None,
+        # A template's: when the task prepares its next issue (site time, as `draftAt`)
+        # and the period it covers. Null: it prepares none.
+        "nextDraft": related.next_drafts.get(page.pk),
+        # The template an issue was made from. Null for a template, a bulletin made
+        # without one, and an issue whose template was deleted.
+        "template": ({"id": template, "title": related.titles[template]}
+                     if template in related.titles else None),
+        "issueCount": related.issue_counts.get(page.pk, 0),
         "parent": parent.pk,
         "parentTitle": parent.title,
         "blockCount": page.block_count,
         "updatedAt": _ms(page.latest_revision_created_at or page.last_published_at),
+        "publishedAt": _ms(page.last_published_at),
+        # An issue the draft task prepared, waiting for someone; null if made by hand.
+        "preparedAt": _ms(page.prepared_at),
         "live": page.live,
         "hasUnpublishedChanges": page.has_unpublished_changes,
-        "url": page.get_url() if page.live and not page.is_template else None,
+        # the request caches the sites' root paths, which every page's url needs
+        "url": page.get_url(request) if page.live and not page.is_template else None,
     }
 
 
-def _full(page, parent=None):
-    return {**_meta(page, parent), "doc": page.doc}
+def _full(page, parent=None, request=None):
+    return {**_meta(page, parent, request), "doc": page.doc}
 
 
 def _read_body(request):
@@ -187,15 +258,52 @@ def _read_body(request):
         body["draft_at"] = draft_at and draft_at.replace(minute=draft_at.minute - draft_at.minute % 15,
                                                          second=0, microsecond=0)
 
+    # ClimWeb's "Effective from", for a bulletin made without template (`_date_refused`).
+    # Absent: unchanged.
+    day = None
+    if "date" in data:
+        try:
+            day = date.fromisoformat(data["date"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("date must be YYYY-MM-DD") from exc
+
+    kind = data.get("kind", BULLETIN)  # read at creation only: then fixed
+    if kind not in KINDS:
+        raise ValueError(f"kind must be one of {', '.join(KINDS)}")
+
+    # The image a shared link shows (ClimWeb's `search_image`, its og:image): the
+    # studio picks it - a bulletin's first image, a flash's capture. Absent: unchanged.
+    share = {}
+    if "shareImage" in data:
+        image_id = data["shareImage"]
+        if image_id is not None and not (
+                type(image_id) is int and get_image_model().objects.filter(pk=image_id).exists()):
+            raise ValueError("shareImage must be the id of an image of the library, or null")
+        share["search_image_id"] = image_id
+
     return {
         "settings": body,
+        "share": share,
         "title": title,
+        "kind": kind,
+        "date": day,
         "doc": doc,
         "html": nh3.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS,
                           generic_attribute_prefixes=ALLOWED_ATTR_PREFIXES),
         "is_template": bool(data.get("isTemplate", False)),
         "parent": data.get("parent"),
     }
+
+
+def _date_refused(page):
+    """Why the studio may not set `page`'s date, or None. Only a bulletin made without
+    template has a date of its own: an issue covers a period of its template's cadence,
+    which sets its date, its end and its title, and a template has no period at all."""
+    if page.is_template:
+        return "a template has no date: each of its issues covers a period of its cadence"
+    if page.source_template_id or page.valid_until:
+        return "an issue's date is the period it covers, set by its template's cadence"
+    return None
 
 
 def map_settings(request):
@@ -265,18 +373,23 @@ def bulletins(request):
             return JsonResponse({"error": "parent must be the id of a product page"}, status=400)
 
         # live=False must be set *before* add_child, or Wagtail publishes the page.
-        page = BulletinPage(doc=body["doc"], html=body["html"],
-                            is_template=body["is_template"], live=False)
+        page = BulletinPage(doc=body["doc"], html=body["html"], kind=body["kind"],
+                            is_template=body["is_template"], live=False, **body["share"])
+        if body["date"]:
+            if refused := _date_refused(page):
+                return JsonResponse({"error": refused}, status=400)
+            page.date = body["date"]
         if page.is_template:
             for field, value in body["settings"].items():
                 setattr(page, field, value)
         page.apply_title(body["title"], parent=parent)
         parent.add_child(instance=page)
         page.save_revision(user=request.user)
-        return JsonResponse(_full(page, parent), status=201)
+        return JsonResponse(_full(page, parent, request), status=201)
 
-    pages = BulletinPage.objects.all().order_by("-latest_revision_created_at")
-    return JsonResponse([_meta(p) for p in pages], safe=False)
+    pages = list(BulletinPage.objects.order_by("-latest_revision_created_at"))
+    related = _Related(pages)
+    return JsonResponse([_meta(p, request=request, related=related) for p in pages], safe=False)
 
 
 @require_admin_access
@@ -296,7 +409,14 @@ def bulletin(request, pk):
             body = _read_body(request)
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
+        if body["date"]:
+            if refused := _date_refused(page):
+                return JsonResponse({"error": refused}, status=400)
+            page.date = body["date"]
         page.doc, page.html = body["doc"], body["html"]
+        # in the revision like the html: the link preview changes when the page is published
+        for field, value in body["share"].items():
+            setattr(page, field, value)
         page.apply_title(body["title"])
         if page.is_template:
             for field, value in body["settings"].items():
@@ -309,10 +429,14 @@ def bulletin(request, pk):
         if not page.live or page.is_template:
             page.save()
         page.save_revision(user=request.user)
-        return JsonResponse(_full(page))
+        return JsonResponse(_full(page, request=request))
 
-    # The editor opens the draft, not the published version.
-    return JsonResponse(_full(page.get_latest_revision_as_object(), page.get_parent()))
+    # The editor opens the draft, not the published version. What is the page's rather
+    # than a revision's comes from the row: when it was last published, and the last
+    # period the draft task prepared (the task writes the row alone).
+    latest = page.get_latest_revision_as_object()
+    latest.last_published_at, latest.last_draft = page.last_published_at, page.last_draft
+    return JsonResponse(_full(latest, page.get_parent(), request))
 
 
 @require_admin_access
@@ -330,7 +454,7 @@ def new_issue(request, pk):
     except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError, AttributeError):
         return JsonResponse({"error": "expected {date: YYYY-MM-DD} or nothing"}, status=400)
     issue = create_issue(template, day, user=request.user)
-    return JsonResponse(_full(issue), status=201)
+    return JsonResponse(_full(issue, request=request), status=201)
 
 
 @require_admin_access
@@ -346,7 +470,7 @@ def publish(request, pk):
     (page.get_latest_revision() or page.save_revision()).publish()
     _clear_site_cache()
     page.refresh_from_db()
-    return JsonResponse(_meta(page))
+    return JsonResponse(_meta(page, request=request))
 
 
 def _image(image):
@@ -362,11 +486,18 @@ def _image(image):
     }
 
 
+def _collection(name):
+    """A collection of the library, under the root, made on first use."""
+    root = Collection.get_first_root_node()
+    return root.get_children().filter(name=name).first() or root.add_child(name=name)
+
+
 @require_admin_access
 @require_http_methods(["GET", "POST"])
 def images(request):
     """The bulletin's images are ClimWeb images: uploading here puts them in the
-    site's own library, and the picker browses what is already there.
+    site's own library, and the picker browses what is already there. A flash's
+    capture (`purpose=flash`) goes to a collection of its own.
 
     Validation is Wagtail's own image form - it checks the real file format, not
     the extension, and enforces WAGTAILIMAGES_MAX_UPLOAD_SIZE."""
@@ -375,8 +506,16 @@ def images(request):
     if request.method == "POST":
         if not request.user.has_perm("wagtailimages.add_image"):
             return JsonResponse({"error": "not allowed to add images"}, status=403)
-        form = get_image_form(Image)(request.POST, request.FILES,
-                                     instance=Image(), user=request.user)
+        data = request.POST.copy()
+        # made before the form, which counts the collections the user may add to
+        target = (_collection(FLASH_COLLECTION) if data.get("purpose") == FLASH
+                  else Collection.get_first_root_node())
+        form = get_image_form(Image)(data, request.FILES, instance=Image(), user=request.user)
+        # The form asks for a collection as soon as the user may add to more than one
+        # (the forecast maps make a second): the studio has no such field.
+        if "collection" in form.fields and not data.get("collection"):
+            allowed = form.fields["collection"].queryset
+            data["collection"] = (target if allowed.filter(pk=target.pk).exists() else allowed.first()).pk
         if not form.is_valid():
             first = next(iter(form.errors.values()))[0]
             return JsonResponse({"error": first}, status=400)
@@ -391,9 +530,9 @@ def images(request):
     if q:
         qs = qs.filter(title__icontains=q)
     else:
-        # The forecast maps promoted day after day would push the site's own images
-        # off the list. They have their own block; a search still finds them.
-        qs = qs.exclude(collection__name=MAPS_COLLECTION)
+        # The forecast maps promoted day after day, and the flashes' captures, would
+        # push the site's own images off the list. A search still finds them.
+        qs = qs.exclude(collection__name__in=[MAPS_COLLECTION, FLASH_COLLECTION])
     return JsonResponse([_image(i) for i in qs.order_by("-created_at")[:IMAGE_PAGE]], safe=False)
 
 

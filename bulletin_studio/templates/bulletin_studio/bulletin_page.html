@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static i18n get_share_url %}
+{% load static i18n get_share_url bulletin_studio_tags %}
 
 {% block body_class %}bulletin-page{% endblock %}
 
@@ -8,7 +8,7 @@
         Content styles shipped with the frontend bundle: the same rules the editor
         uses, so what the author composed is what the site shows.
     {% endcomment %}
-    <link rel="stylesheet" href="{% static 'bulletin_studio/app/bulletin-studio-content.css' %}">
+    <link rel="stylesheet" href="{% studio_static 'bulletin_studio/app/bulletin-studio-content.css' %}">
     {% if has_map %}<link rel="stylesheet" href="{% static 'css/maplibre-gl.css' %}">{% endif %}
     <style>
         /* Aligned with the document's text and right under it (.bs-doc in the bundle's
@@ -45,6 +45,6 @@
             between what the author saw and what the site draws.
         {% endcomment %}
         <script src="{% static 'js/maplibre-gl.js' %}"></script>
-        <script type="module" src="{% static 'bulletin_studio/app/bulletin-studio-embed.js' %}"></script>
+        <script type="module" src="{% studio_static 'bulletin_studio/app/bulletin-studio-embed.js' %}"></script>
     {% endif %}
 {% endblock %}

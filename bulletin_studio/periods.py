@@ -5,10 +5,15 @@ An issue covers the period that begins: the dekadal bulletin prepared on the 11t
 the outlook of the 11th to the 20th. Pure: no Django, no database.
 """
 import calendar
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 DAILY, DEKADAL, MONTHLY = "daily", "dekadal", "monthly"
 CADENCES = (DAILY, DEKADAL, MONTHLY)
+
+# The draft task runs every quarter of an hour (`tasks`), and draft times are rounded to it.
+RUN_EVERY = 15
+# How many periods ahead `next_draft` looks for one without its issue: a year of days.
+LOOK_AHEAD = 366
 
 
 def last_of_month(day):
@@ -35,3 +40,26 @@ def due(cadence, draft_at, now):
     if start == now.date() and now.time() < draft_at:
         return None
     return start
+
+
+def next_draft(cadence, draft_at, now, done):
+    """(when, first day, last day) of the next draft the task prepares, seen at `now` (a
+    naive local datetime), or None. `done(first day)` tells whether a period needs no
+    draft: prepared once already, or its issue made by hand - the caller knows from the
+    database. The current period's while it is not done: at `draft_at` on its first day
+    if that is still to come, else at the task's next run, which finds it `due`. Then the
+    first period after it that is not done, at `draft_at` on its first day."""
+    start, end = period(cadence, now.date())
+    if not done(start):
+        at = datetime.combine(start, draft_at)
+        if at > now:
+            return at, start, end
+        run = now.replace(second=0, microsecond=0) + timedelta(minutes=RUN_EVERY - now.minute % RUN_EVERY)
+        # a run past the period's end would find it gone by (`due`): it is never prepared
+        if run.date() <= end:
+            return run, start, end
+    for _ in range(LOOK_AHEAD):
+        start, end = period(cadence, end + timedelta(days=1))
+        if not done(start):
+            return datetime.combine(start, draft_at), start, end
+    return None
