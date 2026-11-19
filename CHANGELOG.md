@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.1.0a3 — 2026-11-19
+
+Third alpha: a studio to find one's way around, media flashes and the Data Helper's WMS
+layers. Needs ClimWeb 1.1.7 or later; two migrations (`0005`, `0006`). Frontend:
+bulletin-studio-js `d290e95`.
+
+- Navigation: Home, Templates and Bulletins tabs, and "New publication" from anywhere.
+  The home lists the drafts the task prepared until someone publishes them (the bell
+  counts them), what is left to publish and the latest publications. A template's page
+  shows its cadence, its next automatic draft and its issues by year. Bulletins: search,
+  filters by kind, status and template, kept when coming back from the editor.
+- "New publication": an issue of a template for the current period, the next one or the
+  one of another day — the studio warns when that issue exists already — or a one-off
+  bulletin or flash without template, whose day the author sets.
+- Editor: breadcrumbs, and a bar saying what is being edited (issue, flash, template,
+  one-off) with its period, number and status. The main button follows the state:
+  "Publish", "Publish the changes", "Published".
+- Media flashes: a second kind of template, one square image for social networks (logo
+  and flag, a map or an image, a title with the date) and the text of its post, written
+  as WhatsApp formats it, with an emoji picker. Shared from the studio (share sheet, copy
+  the image, copy the text, download); publishing keeps the image in the "Media flashes"
+  collection and puts it on the flash's page.
+- Link previews: a shared link shows the bulletin's first image or forecast map, or the
+  flash's image (ClimWeb's `search_image`, set on each save).
+- Map block: the Data Helper's WMS layers, their dates and legend read from the service.
+  The map says whether a layer is loading, refused, or empty where the map looks.
+- API: the bulletin list gives each page its template, publication and preparation
+  times, and a template's issue count and next draft, in a constant number of queries;
+  `date` on POST and PUT for one-offs.
+- Upgrades load the new frontend: the studio and the public page add the bundle's
+  modification time to its url, and the chunks it loads have hashed names.
+- Image uploads no longer fail when the user may add to more than one collection.
+
 ## 0.1.0a2 — 2026-10-12
 
 Second alpha: issues prepared from their template, forecast maps and city forecasts.
