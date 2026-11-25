@@ -373,6 +373,12 @@ break:
   high, logo and flag at full size). The templates load the entries through
   `{% studio_static %}` (`templatetags/bulletin_studio_tags.py`), which adds the file's
   mtime as `?v=`, and leaves an already hashed name alone.
+- So an entry is loaded under another url than its file name (`?v=`, or Django's hash),
+  and a chunk must never import it: its relative `./bulletin-studio.js` would be a
+  second copy of the app, mounted in the same container, which wipes the first — a
+  blank editor and no error (0.1.0a2 and a3, on any document with columns: the lazy
+  `ColumnsBlock` shared code with the entry). The JS build fails on it
+  (`noChunkImportsAnEntry` in `vite.config.ts`); fix it with a static import.
 
 ## i18n
 
