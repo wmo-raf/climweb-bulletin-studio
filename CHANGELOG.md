@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0a4 — 2026-11-25
+
+Fixes 0.1.0a3. Needs ClimWeb 1.1.7 or later, no migration. Frontend:
+bulletin-studio-js `b936d59`.
+
+- A document with columns — the dekadal template and its issues — opened on a blank
+  editor, without an error, and the studio stopped answering until reloaded: the
+  columns block, loaded on demand, made the browser run a second copy of the studio.
+  0.1.0a2 had it too wherever ClimWeb hashes static files (its production settings).
+
 ## 0.1.0a3 — 2026-11-19
 
 Third alpha: a studio to find one's way around, media flashes and the Data Helper's WMS
